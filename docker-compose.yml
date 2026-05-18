@@ -1,0 +1,24 @@
+services:
+  deepwork:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: deepwork_insights
+    volumes:
+      # Mount the entire project directory so all scripts and CSV files are live-editable
+      # from the host without rebuilding the image.
+      - .:/app
+    working_dir: /app
+    environment:
+      # Ensure Python output is printed immediately (no buffering in logs)
+      - PYTHONUNBUFFERED=1
+      # Tell auto-sklearn where to write its temporary model cache
+      - AUTOML_TMP=/tmp/autosklearn
+    # Default command: run the April 2026 back-test evaluation script.
+    # Override at runtime:
+    #   docker compose run deepwork python automl_forecast.py
+    #   docker compose run deepwork python autosklearn_forecast.py
+    command: /bin/sh -c "python automl_forecast.py && python autosklearn_forecast.py"
+    # Allocate a pseudo-TTY so progress output renders correctly
+    tty: true
+    stdin_open: true

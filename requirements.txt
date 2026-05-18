@@ -1,0 +1,23 @@
+# ── core numeric stack ────────────────────────────────────────────────────────
+# numpy < 2.0 — auto-sklearn 0.15 is not compatible with numpy 2.x
+numpy>=1.21,<2.0
+scipy>=1.7
+
+# ── scikit-learn ──────────────────────────────────────────────────────────────
+# scikit-learn 1.4.x is the highest version auto-sklearn 0.15 supports
+scikit-learn>=1.0,<1.5
+
+# ── auto-sklearn ──────────────────────────────────────────────────────────────
+# 0.15.0 is the latest release; requires Linux and Python 3.8–3.11.
+# pyrfr (SMAC3 dependency) is compiled via swig during install.
+auto-sklearn==0.15.0
+
+# ── H2O AutoML ────────────────────────────────────────────────────────────────
+# Pure-Python wrapper; the JVM backend is started automatically at runtime.
+# openjdk-21 is installed as a system package in the Dockerfile.
+h2o
+
+# ── data handling ─────────────────────────────────────────────────────────────
+pandas>=1.5
+openpyxl>=3.0        # required by fetch_data_to_csv.py to read BA .xlsx files
+requests>=2.28       # required by fetch_data_to_csv.py to download from BA website

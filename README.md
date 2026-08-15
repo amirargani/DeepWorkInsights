@@ -1,7 +1,10 @@
 # DeepWorkInsights – German Unemployment Data
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-D22128?style=for-the-badge&logo=apache)](LICENSE.txt)
+[![License](https://img.shields.io/badge/License-Apache_2.0-D22128?style=for-the-badge&logo=apache)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?style=for-the-badge&logo=streamlit)](https://streamlit.io/)
+[![Apache Airflow](https://img.shields.io/badge/Apache_Airflow-Orchestration-017CEE?style=for-the-badge&logo=apacheairflow)](https://airflow.apache.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Database-4169E1?style=for-the-badge&logo=postgresql)](https://www.postgresql.org/)
 [![H2O AutoML](https://img.shields.io/badge/H2O-AutoML-FFD700?style=for-the-badge&logo=python)](https://h2o.ai/)
 [![Auto-sklearn](https://img.shields.io/badge/Auto--sklearn-AutoML-brightgreen?style=for-the-badge&logo=python)](https://automl.github.io/auto-sklearn/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
@@ -81,14 +84,14 @@ and make sure the Docker daemon is running before executing any command below.
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | Python 3.11-slim image with Java 17, `swig`, and `build-essential` |
-| `docker-compose.yml` | Service definition; mounts the project folder as a live volume |
-| `requirements.txt` | Pinned Python dependencies (`auto-sklearn`, `h2o`, `numpy<2`, `scikit-learn<1.5`) |
+| `docker/Dockerfile` | Python 3.11-slim image with Java 17, `swig`, and `build-essential` |
+| `docker/docker-compose.yml` | Service definition; mounts the parent folder as a live volume |
+| `docker/requirements.txt` | Pinned Python dependencies (`auto-sklearn`, `h2o`, `numpy<2`, `scikit-learn<1.5`) |
 
 ### Build the image (once)
 
 ```bash
-docker compose build
+docker compose -f docker/docker-compose.yml build
 ```
 
 > The first build takes **2–10 minutes** because auto-sklearn compiles C/C++ extensions
@@ -98,35 +101,38 @@ docker compose build
 
 ```bash
 # All (default command) — fetch data, run H2O AutoML, then run Auto-sklearn
-docker compose run --rm deepwork
+docker compose -f docker/docker-compose.yml up
 
 # Fetch latest BA data
-docker compose run --rm deepwork python fetch_data_to_csv.py
+docker compose -f docker/docker-compose.yml run --rm deepwork python -m packages.fetch_data
 
 # H2O AutoML forecast
-docker compose run --rm deepwork python automl_forecast.py
+docker compose -f docker/docker-compose.yml run --rm deepwork python -m packages.automl
 
 # Auto-sklearn forecast
-docker compose run --rm deepwork python autosklearn_forecast.py
+docker compose -f docker/docker-compose.yml run --rm deepwork python -m packages.autosklearn
+
+# Run unit tests
+docker compose -f docker/docker-compose.yml run --rm deepwork pytest tests/
 ```
 
 ### Common Docker Commands
 
 ```bash
 # Start the container and run all scripts in sequence (prints output to terminal)
-docker-compose up
+docker compose -f docker/docker-compose.yml up
 
 # Start the container in the background (detached mode, runs silently)
-docker-compose up -d
+docker compose -f docker/docker-compose.yml up -d
 
 # Stop and remove the container (and its associated network)
-docker-compose down
+docker compose -f docker/docker-compose.yml down
 
 # Stop the container and completely remove the built image (useful for a clean rebuild)
-docker-compose down --rmi all
+docker compose -f docker/docker-compose.yml down --rmi all
 
 # Forcefully remove stopped containers (cleans up any left-over containers)
-docker-compose rm -f
+docker compose -f docker/docker-compose.yml rm -f
 ```
 
 ### How it works
@@ -140,24 +146,83 @@ docker-compose rm -f
 
 ---
 
+## Apache Airflow Automation
+
+We use **Apache Airflow** (running in its own Docker environment) to orchestrate and schedule the forecasting pipeline automatically. Default examples are disabled to keep the Airflow interface clean.
+
+### Web Interfaces & Services Overview
+
+Running `docker compose -f docker/docker-compose.yml up -d` spins up the following Web services:
+
+| Service / Interface | Port / URL | Credentials / Notes | Description |
+|---|---|---|---|
+| **Streamlit Dashboard** | [`http://localhost:8501`](http://localhost:8501) | *None* | Interactive visualizations, seasonality analysis, forecast comparison & embedded Database Browser. |
+| **Adminer (PostgreSQL UI)** | [`http://localhost:8081`](http://localhost:8081) | System: `PostgreSQL`<br>Server: `postgres`<br>User: `admin`<br>Password: `admin`<br>DB: `airflow` | Lightweight Web UI to directly view and query the PostgreSQL database (`unemployment_raw`, `predictions`, `test_runs`, etc.). |
+| **Airflow Web UI** | [`http://localhost:8080`](http://localhost:8080) | User: `admin`<br>Password: `admin` | Pipeline orchestration, DAG monitoring & execution tracking. |
+
+### Airflow Setup & Execution
+
+1. **Initialise database & create admin user (first-time only)**:
+   ```bash
+   docker compose -f docker/docker-compose.yml up airflow-init
+   ```
+
+2. **Start services in detached mode**:
+   ```bash
+   docker compose -f docker/docker-compose.yml up -d
+   ```
+
+3. **Access Web UIs**:
+   - **Streamlit Dashboard**: `http://localhost:8501`
+   - **Adminer DB Browser**: `http://localhost:8081`
+   - **Airflow Web UI**: `http://localhost:8080`
+
+4. **Verify and Run**:
+   - Locate the `unemployment_forecast` DAG.
+   - Turn the DAG toggle **ON** and click **Trigger DAG** to run the pipeline.
+   - The DAG is scheduled to run daily from the 26th to the 31st of every month, but uses a `ShortCircuitOperator` to ensure that the forecasting pipeline is executed exactly once per month, precisely on the last business day of the month. If no new data is available on that day, it stops and will not check again until the next month.
+   - The pipeline executes three containerized steps in sequence: `fetch_data` -> `automl_forecast` -> `autosklearn_forecast` using the host's Docker daemon.
+
+5. **Stop services**:
+   ```bash
+   docker compose -f docker/docker-compose.yml down
+   ```
+
+6. **Restart services**:
+   ```bash
+   docker compose -f docker/docker-compose.yml down
+   docker compose -f docker/docker-compose.yml up -d
+   ```
+
+
+
+### Local IDE Support (Optional)
+
+If your local IDE flags imports from `airflow` or `docker` (e.g. `unresolved import` warnings in `unemployment_forecast_dag.py`) because these libraries are executed inside Docker but not installed on your host system, you can install the development packages locally to restore auto-completion and type checking:
+```bash
+pip install apache-airflow apache-airflow-providers-docker
+```
+
+---
+
 ## Run
 
 ### 1. Fetch latest data from BA
 
 ```bash
-python3 fetch_data_to_csv.py
+python3 -m packages.fetch_data
 ```
 
 ### 2. Run H2O AutoML forecast
 
 ```bash
-python3 automl_forecast.py
+python3 -m packages.automl
 ```
 
 ### 3. Run Auto-sklearn forecast
 
 ```bash
-python3 autosklearn_forecast.py
+python3 -m packages.autosklearn
 ```
 
 ---
@@ -166,22 +231,54 @@ python3 autosklearn_forecast.py
 
 ```text
 DeepWorkInsights/
-├── Dockerfile                          # Python 3.11 + Java 17 + swig image
-├── docker-compose.yml                  # Docker service definition (volume mount)
-├── requirements.txt                    # Pinned Python dependencies for Docker
-├── fetch_data_to_csv.py                # Downloads and updates unemployment CSV
-├── forecast_common.py                  # Common forecasting utilities (feature engineering, etc.)
-├── automl_forecast.py                  # H2O AutoML forecast for current month
-├── autosklearn_forecast.py             # Auto-sklearn forecast for current month
-├── files/
-│   ├── unemployment_germany.csv            # Official BA monthly figures (2005–present)
-│   ├── automl_predictions.csv              # H2O AutoML forecasts (prediction history)
-│   ├── autosklearn_predictions.csv         # Auto-sklearn forecasts (prediction history)
-│   ├── unified_predictions.csv             # Combined H2O and Auto-sklearn forecasts (CSV format)
-│   └── unified_predictions.md              # Combined H2O and Auto-sklearn forecasts (Markdown format)
-├── docs/
-│   └── DE.md                               # German documentation
-├── README.md
+├── airflow/                            # Airflow Orchestration & Docker-Compose Stack
+│   ├── dags/                           # DAGs for automated pipeline execution
+│   │   └── unemployment_forecast_dag.py
+│   ├── logs/                           # Airflow execution logs
+│   ├── plugins/                        # Custom Airflow plugins
+│   └── docker-compose.yml              # Complete stack (Airflow, Postgres, Streamlit, Adminer)
+├── docker/                             # Core AutoML & Web UI Docker setup
+│   ├── Dockerfile                      # Python 3.11 + Java 17 + swig image (ML Engine)
+│   ├── Dockerfile.streamlit            # Streamlit Dashboard container image
+│   ├── docker-compose.yml              # Pipeline service definition
+│   └── requirements.txt                # Pinned Python dependencies
+├── docs/                               # Documentation
+│   └── DE.md                           # German documentation
+├── packages/                           # Core Python packages & ML pipelines
+│   ├── __init__.py
+│   ├── common.py                       # DB connection, feature engineering, logging
+│   ├── fetch_data.py                   # BA Data Scraper & Database Updater
+│   ├── automl.py                       # H2O AutoML forecast pipeline
+│   ├── autosklearn.py                  # Auto-sklearn forecast pipeline
+│   ├── dashboard_data.py               # Dashboard data loader & DAG status queries
+│   ├── monitoring_data.py              # Docker metrics, log parser & monitoring queries
+│   ├── translations.py                 # Centralized EN/DE translation dictionaries
+│   └── model_selection.py              # AutoML model selection & promotion
+├── streamlit/                          # Web UI Dashboard App (Port 8501)
+│   ├── .streamlit/                     # Streamlit theme & config
+│   ├── app_pages/
+│   │   ├── dashboard.py                # Seasonality & forecast charts
+│   │   └── monitoring.py               # Database browser, Docker logs & benchmarks
+│   ├── ui/                             # Modular UI components & dependencies
+│   │   ├── __init__.py                 # Package exports for UI components
+│   │   ├── charts.py                   # Plotly charts (timeline, seasonality, errors, YoY)
+│   │   ├── kpi_cards.py                # Metric cards row for Actuals & Forecasts
+│   │   ├── navbar.py                   # Floating navigation bar & tab/language toggles
+│   │   ├── scroll_persister.py         # Scroll position persistence component
+│   │   ├── state_persister.py          # Custom Component v2 browser localStorage sync
+│   │   ├── styles.py                   # Global CSS styles & opacity rules
+│   │   └── tables.py                   # Dataframe viewers & database browser fragment
+│   ├── Dockerfile                      # Dockerfile for dashboard container
+│   └── streamlit_app.py                # Main entry point for dashboard
+├── tests/                              # Automated test suite (pytest)
+│   ├── test_common.py                  # Utility tests
+│   ├── test_fetch_data.py              # Data fetching tests
+│   ├── test_model_selection.py         # Model selection tests
+│   └── test_streamlit_views.py         # Dashboard view tests
+├── files/                              # Exported predictions and reports
+├── conftest.py                         # pytest configuration
+├── setup.py                            # Python package distribution configuration
+├── README.md                           # Main English documentation
 └── LICENSE
 ```
 
@@ -267,7 +364,7 @@ StackedEnsemble_BestOfFamily_4_AutoML_1_20260518_140401   98.82 55953 38766.8505
 
 ## Auto-sklearn Forecast
 
-`autosklearn_forecast.py` predicts the unemployment figure for the current calendar month
+`packages/autosklearn.py` predicts the unemployment figure for the current calendar month
 using **Auto-sklearn**, a Python-native AutoML library built on top of scikit-learn.
 It automatically searches over dozens of algorithms and hyperparameter configurations,
 then combines the best into a weighted ensemble.
@@ -309,7 +406,7 @@ If your system runs Python 3.11+, use `pyenv` or `conda`:
 conda create -n deepwork python=3.10
 conda activate deepwork
 pip install auto-sklearn scikit-learn pandas numpy
-python autosklearn_forecast.py
+python -m packages.autosklearn
 ```
 
 ### Example output
@@ -361,28 +458,71 @@ PolynomialRegression (deg 2)   82.93  87250  67209
 
 ## Changelog
 
+### v1.1
+#### 🏛️ Centralized Docker Architecture & Execution
+- **Unified Docker Compose Stack** (`docker/docker-compose.yml`):
+  - Consolidated all services (**PostgreSQL**, **Airflow Webserver**, **Airflow Scheduler**, **Airflow Init**, **Streamlit Dashboard**, **Adminer DB UI**, **AutoML Runner**) into a single centralized Docker Compose file.
+  - Simplified execution: `docker compose -f docker/docker-compose.yml up -d` launches the entire infrastructure.
+- **Dedicated Container Images** (`docker/Dockerfile`, `docker/Dockerfile.streamlit`):
+  - Clean separation of the heavy ML engine (`Python 3.11 + Java 17 + C++ Build Tools`) from the lightweight UI container (`Python 3.10-slim + Streamlit + Plotly`).
+
+#### 🗄️ PostgreSQL Database Integration & Web Management
+- **PostgreSQL as Single Source of Truth**:
+  - Full database persistence for historical unemployment data (`unemployment_raw`), promoted forecasts (`predictions`), active evaluation runs (`test_runs`), and historical model archives (`test_runs_archive`).
+- **Adminer Database Web UI** ([`http://localhost:8081`](http://localhost:8081)):
+  - Integrated Adminer for direct web-based management, SQL querying, and visual inspection of PostgreSQL database tables.
+- **Unified Security Credentials**:
+  - Standardized admin credentials (`admin` / `admin`) across PostgreSQL, Adminer, and Airflow.
+
+#### 📊 Streamlit Dashboard & Interactive Monitoring
+- **Backend Data Modules** (`packages/dashboard_data.py`, `packages/monitoring_data.py`):
+  - Extracted backend data fetching, database cache queries, DAG state verification, Docker container metrics collection, and multi-format log parsing into dedicated reusable packages.
+- **Modular UI Component Package** (`streamlit/ui/`):
+  - Extracted and organized all UI elements into single-responsibility Python modules (`styles.py`, `scroll_persister.py`, `state_persister.py`, `navbar.py`, `kpi_cards.py`, `charts.py`, `tables.py`, `__init__.py`).
+- **Browser State Synchronization** (`streamlit/ui/state_persister.py`):
+  - Implemented `st.components.v1.html` script to seamlessly persist and hydrate language selections across reruns via browser `localStorage`.
+- **Scroll & Stale Element Transition Optimization**:
+  - Instant DOM element transition management (`display: none !important` on stale elements) ensuring seamless tab switching without previous tab content flickering.
+- **Dynamic Seasonality Analysis** (`streamlit/app_pages/dashboard.py`):
+  - Automatic calculation and rendering of dynamic year ranges (e.g. `2005 - 2025 vs. Current Year 2026`; automatically shifts in future years like 2027 to `2005 - 2026 vs. Current Year 2027`).
+- **Interactive Time-Filter**:
+  - Quick period selector (*All Time*, *Last 5 Years*, *Last 3 Years*, *Last 1 Year*) without page reloads.
+- **Database & Evaluation Logs Browser** (`streamlit/app_pages/monitoring.py`):
+  - Embedded browser for live inspection of database tables, model leaderboards, Docker container status, and system logs.
+
+#### 🧪 Comprehensive pytest Suite
+- **10/10 Automated Unit Tests** (`tests/`):
+  - `test_common.py`: Verifies feature engineering, sine/cosine cyclical encoding, lags, `build_target_row`, and database logging.
+  - `test_fetch_data.py`: Tests month mapping and Excel parsing routines.
+  - `test_model_selection.py`: Validates model ranking by $R^2$/RMSE and test run archiving.
+  - `test_streamlit_views.py`: Tests dashboard filter cutoffs and benchmark SQL queries.
+
+#### 🌐 English Codebase & Documentation Standard
+- **Full Standardization**:
+  - Standardized all inline comments, module docstrings, Docker build scripts, and YAML configurations across the entire codebase to professional English.
+
 ### v1.0
 #### 🚀 Core Forecasting Engines & Features
-- **H2O AutoML Integration** (`automl_forecast.py`)
+- **H2O AutoML Integration** (`packages/automl.py`)
   - Trains and compares multiple model types (GBM, XGBoost, Random Forest, Deep Learning, Stacked Ensembles).
   - Provides a detailed leaderboard containing R², RMSE, and MAE metrics.
   - Supports configurable execution time budgets and variable leaderboard sizes.
   - Employs a gap-bridging loop via `files/automl_predictions.csv` to maintain continuous historical data.
-- **Auto-sklearn Engine** (`autosklearn_forecast.py`)
+- **Auto-sklearn Engine** (`packages/autosklearn.py`)
   - Leverages scikit-learn-based AutoML capabilities with weighted ensemble building.
   - Implements Polynomial Regression (degree 2) and transparent standard regressors as permanent baselines.
   - Delivers a dedicated leaderboard with R², RMSE, and MAE values per model.
   - Enables dynamic data gap bridging using `files/autosklearn_predictions.csv`.
-- **Common Forecasting Utilities** (`forecast_common.py`)
+- **Common Forecasting Utilities** (`packages/common.py`)
   - Centralizes key feature engineering (linear Time Index, cyclical Sine/Cosine month encoding, lag variables, rolling averages, and momentum).
   - Manages history reconstruction by merging past predictions as training inputs where official Federal Employment Agency (BA) figures are still pending.
 
 #### 🐳 Containerization & Setup
-- **Docker Setup & Portability** (`Dockerfile`, `docker-compose.yml`, `requirements.txt`)
+- **Docker Setup & Portability** (`docker/Dockerfile`, `docker/docker-compose.yml`, `docker/requirements.txt`)
   - Provides a unified environment with Python 3.11 and OpenJDK Java 17 to run H2O and Auto-sklearn flawlessly across any OS.
   - Mounts the project folder as a live host volume, allowing code changes to take effect instantly without rebuilding.
 - **Bilingual Documentation**
-  - Fully localized project documentation in German ([docs/DE.md](file:///Users/amirargani/Documents/Python/DeepWorkInsights/docs/DE.md)) and English ([README.md](file:///Users/amirargani/Documents/Python/DeepWorkInsights/README.md)).
+  - Fully localized project documentation in German ([docs/DE.md](file:///Users/amirargani/Documents/GitHub/DeepWorkInsights/docs/DE.md)) and English ([README.md](file:///Users/amirargani/Documents/GitHub/DeepWorkInsights/README.md)).
 
 #### 📊 Reports, Logging & Sync
 - **Unified Markdown Report** (`files/unified_predictions.md`)
@@ -397,7 +537,7 @@ PolynomialRegression (deg 2)   82.93  87250  67209
   - Standardizes logged dates to the start of the month (`freq="MS"`) inside the ML engine to preserve the grid's chronological integrity.
 
 #### 🛠️ Data Pipeline & Resiliency
-- **Automated Data Collector** (`fetch_data_to_csv.py`)
+- **Automated Data Collector** (`packages/fetch_data.py`)
   - Downloads and extracts official monthly German unemployment figures (Table 2.1.2) from the Federal Employment Agency (BA).
 - **Robust Network Fallback**
   - Wraps BA server downloads in a `try-except` block. If the server is unreachable or offline, the script warns the user and gracefully falls back to local CSV records instead of crashing.

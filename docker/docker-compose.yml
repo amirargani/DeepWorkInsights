@@ -1,0 +1,152 @@
+# Centralized Docker Compose orchestration for DeepWorkInsights
+# Defines all services: PostgreSQL Database, Airflow Stack, Streamlit UI, Adminer DB UI, and ML Runner
+name: deepwork
+
+# Shared Airflow configurations across webserver, scheduler, and init containers
+x-airflow-common:
+  &airflow-common
+  image: apache/airflow:2.7.2
+  environment:
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:admin@postgres/airflow
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+    AIRFLOW__CORE__LOGGING_LEVEL: INFO
+    AIRFLOW_VAR_HOST_PROJECT_PATH: ${HOST_PROJECT_PATH:-/Users/amirargani/Documents/GitHub/DeepWorkInsights}
+  volumes:
+    - ../airflow/dags:/opt/airflow/dags
+    - ../airflow/logs:/opt/airflow/logs
+    - ../airflow/plugins:/opt/airflow/plugins
+    - /var/run/docker.sock:/var/run/docker.sock
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  # Primary PostgreSQL Database container storing historical BA data, forecasts, and evaluation metrics
+  postgres:
+    image: postgres:13
+    container_name: deepwork-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  # Apache Airflow Webserver interface (accessible at http://localhost:8080)
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: deepwork-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: always
+
+  # Apache Airflow Scheduler engine executing pipeline DAGs on schedule
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: deepwork-scheduler
+    command: scheduler
+    restart: always
+
+  # One-shot Airflow Database migration and Admin user creation initializer
+  airflow-init:
+    <<: *airflow-common
+    container_name: deepwork-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db upgrade
+        airflow users create \
+          --username admin \
+          --firstname admin \
+          --lastname admin \
+          --role Admin \
+          --email admin@example.com \
+          --password admin
+        airflow users create \
+          --username airflow \
+          --firstname airflow \
+          --lastname airflow \
+          --role Admin \
+          --email airflow@example.com \
+          --password airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Interactive Streamlit Web UI Dashboard (accessible at http://localhost:8501)
+  streamlit:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile.streamlit
+    image: streamlit:latest
+    container_name: deepwork-streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://admin:admin@postgres/airflow
+      PYTHONPATH: /app
+    volumes:
+      - ../packages:/app/packages
+      - ../streamlit:/app/streamlit
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-scheduler:
+        condition: service_started
+    restart: always
+
+  # Adminer Web UI Database Management tool (accessible at http://localhost:8081)
+  adminer:
+    image: adminer:latest
+    container_name: deepwork-adminer
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+  # Machine Learning AutoML Pipeline Runner (H2O AutoML & Auto-sklearn execution container)
+  deepwork:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    image: deepwork-forecast:latest
+    container_name: deepwork-forecast
+    volumes:
+      - ../:/app
+    working_dir: /app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - AUTOML_TMP=/tmp/autosklearn
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: /bin/sh -c "python -m packages.automl && python -m packages.autosklearn"
+    tty: true
+    stdin_open: true
+
+# Persistent storage volume for PostgreSQL database
+volumes:
+  postgres-db-volume:
+    name: deepwork-volume

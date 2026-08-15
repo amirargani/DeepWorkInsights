@@ -21,3 +21,7 @@ h2o
 pandas>=1.5
 openpyxl>=3.0        # required by fetch_data_to_csv.py to read BA .xlsx files
 requests>=2.28       # required by fetch_data_to_csv.py to download from BA website
+pytest
+sqlalchemy
+psycopg2-binary
+

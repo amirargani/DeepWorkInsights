@@ -42,8 +42,8 @@ RUN pip install --no-cache-dir "scikit-learn==0.24.2"
 # Step 3: install auto-sklearn (compiles pyrfr via swig — takes ~3–5 min)
 RUN pip install --no-cache-dir "auto-sklearn==0.15.0"
 
-# Step 4: install H2O and pandas (no compilation needed — pure Python / wheels)
-RUN pip install --no-cache-dir h2o pandas openpyxl requests
+# Step 4: install H2O, pandas, and database packages
+RUN pip install --no-cache-dir h2o pandas openpyxl requests pytest sqlalchemy psycopg2-binary
 
 # Step 5: pin setuptools<71 so that 'import pkg_resources' still works at runtime.
 # auto-sklearn 0.15.0's __init__.py does "import pkg_resources" which was removed as

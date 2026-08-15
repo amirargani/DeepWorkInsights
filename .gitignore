@@ -10,9 +10,11 @@ dist/
 .eggs/
 MANIFEST
 
-# Installer logs
+# Installer & Airflow logs
 pip-log.txt
 pip-delete-this-directory.txt
+airflow/logs/*
+!airflow/logs/.gitkeep
 
 # Unit test / coverage reports
 htmlcov/
@@ -34,12 +36,9 @@ env/
 *.sublime-project
 *.sublime-workspace
 
-# files
+# Data files & generated outputs
 files/
-*.md
-*.csv
 
 # OS files
 .DS_Store
 Thumbs.db
-

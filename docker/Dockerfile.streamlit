@@ -1,0 +1,27 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install python dependencies
+RUN pip install --no-cache-dir \
+    streamlit==1.59.0 \
+    pandas \
+    numpy \
+    sqlalchemy \
+    psycopg2-binary \
+    plotly \
+    docker \
+    openpyxl
+
+# Expose port
+EXPOSE 8501
+
+# Run streamlit from its own directory to load theme config.toml
+CMD ["sh", "-c", "cd streamlit && streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0"]

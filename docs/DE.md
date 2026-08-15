@@ -29,17 +29,16 @@
 
 ## Projektübersicht
 
-DeepWorkInsights lädt offizielle monatliche Arbeitslosendaten für Deutschland herunter, speichert diese als CSV und nutzt **zwei unabhängige AutoML-Engines** (H2O AutoML und Auto-sklearn), um die Arbeitslosenzahlen des aktuellen Monats vorherzusagen.
+DeepWorkInsights lädt offizielle monatliche Arbeitslosendaten für Deutschland von der Bundesagentur für Arbeit (BA) herunter, speichert diese in einer **PostgreSQL-Datenbank** (Single Source of Truth) und nutzt **zwei unabhängige AutoML-Engines** (H2O AutoML und Auto-sklearn), um monatliche Arbeitslosenzahlen vorherzusagen. Alle Pipeline-Ausführungsstatus, Vorhersagen und Modell-Metriken werden in einem interaktiven **Streamlit Dashboard** visualisiert.
 
-| | |
+| Komponente | Technologie / Details |
 |---|---|
 | **Datenquelle** | Bundesagentur für Arbeit (BA), offizielle Excel-Zeitreihen (Tabelle 2.1.2) |
 | **Zeitraum** | Januar 2005 bis zum aktuellen Monat |
-| **Quelldaten** | `files/unemployment_germany.csv` |
-| **H2O Vorhersage-Output** | `files/automl_predictions.csv` |
-| **Auto-sklearn Vorhersage-Output** | `files/autosklearn_predictions.csv` |
-| **Zusammengeführte Vorhersagen (CSV)** | `files/unified_predictions.csv` |
-| **Zusammengeführter Bericht (Markdown)** | `files/unified_predictions.md` |
+| **Zentrale Datenbank** | PostgreSQL (`unemployment_raw`, `predictions`, `test_runs`, `test_runs_archive`) |
+| **Orchestrierung** | Apache Airflow (`unemployment_forecast` DAG) |
+| **Benutzeroberfläche** | Interaktives Streamlit Dashboard (`http://localhost:8501`) |
+| **DB Browser UI** | Adminer Web Interface (`http://localhost:8081`) |
 
 ---
 
@@ -277,6 +276,39 @@ DeepWorkInsights/
 
 ---
 
+## 🗄️ Datenbank-Schema & Airflow DAG-Orchestrierung
+
+### PostgreSQL Datenbank-Schema
+
+PostgreSQL dient als Single Source of Truth für historische Arbeitslosendaten, aktive Vorhersagen, Evaluierungsläufe und Testberichte:
+
+| Tabellenname | Beschreibung | Hauptspalten |
+| :--- | :--- | :--- |
+| `unemployment_raw` | Historische monatliche BA-Arbeitslosendaten | `year` (int), `month` (str), `unemployment` (bigint) |
+| `predictions` | Freigegebene Gewinner-Prognosen (AutoML & Auto-sklearn) | `id` (PK), `run_timestamp`, `target_date`, `framework`, `predicted_unemployment`, `model_name`, `r2_score`, `rmse` |
+| `test_runs` | Aktive Modell-Evaluierungsläufe (bis zu 5 pro Framework/Tag) | `id` (PK), `run_timestamp`, `framework`, `model_name`, `r2_score`, `rmse`, `status` |
+| `test_runs_archive` | Historisches Archiv aller vergangenen Modell-Testläufe | `id` (PK), `run_timestamp`, `framework`, `model_name`, `r2_score`, `rmse`, `archived_at` |
+
+---
+
+### Airflow DAG-Orchestrierung (`unemployment_forecast`)
+
+Der Airflow-DAG (`airflow/dags/unemployment_forecast_dag.py`) läuft 5-mal täglich (`0 0,5,10,15,20 * * *`), um die gesamte Forecasting-Pipeline vollautomatisch auszuführen:
+
+```mermaid
+graph LR
+    A[fetch_data] -->|skip_on_exit_code=10| B[automl_forecast]
+    B --> C[autosklearn_forecast]
+    C --> D[promote_best_models]
+```
+
+1. **`fetch_data`** (`DockerOperator`): Lädt aktuelle BA-Excel-Daten herunter, prüft Wertebereiche sowie Timeline-Lücken und aktualisiert `unemployment_raw`. Gibt Exit-Code 10 zurück, falls Daten bereits aktuell sind.
+2. **`automl_forecast`** (`DockerOperator`): Generiert Lag-Features, trainiert **H2O AutoML**-Modelle und protokolliert Testläufe in `test_runs`.
+3. **`autosklearn_forecast`** (`DockerOperator`): Trainiert **Auto-sklearn**-Modelle und protokolliert Evaluierungsmetriken in `test_runs`.
+4. **`promote_best_models`** (`DockerOperator`): Bewertet die Testläufe ($R^2$ / RMSE), promoviert die Gewinner-Modelle in `predictions` und archiviert Berichte in `test_runs_archive`.
+
+---
+
 ## Daten-Pipeline
 
 1. Herunterladen der aktuellen BA Excel-Datei.
@@ -315,9 +347,9 @@ H2O AutoML trainiert Modelle in dieser Sequenz:
 
 Das Leaderboard wird nach **RMSE** sortiert (niedrigster Wert = am besten). In der Praxis gewinnen meist `StackedEnsemble_AllModels` oder `StackedEnsemble_BestOfFamily`.
 
-### Vorhersagehistorie & Lückenüberbrückung
+### Historie & PostgreSQL-Persistierung
 
-Jeder Durchlauf speichert seine Vorhersage in `files/automl_predictions.csv`. Bei nachfolgenden Durchläufen werden diese vergangenen Vorhersagen vorübergehend als Trainingsdaten zurückgeführt, um Lücken zu überbrücken, bis die offiziellen Daten für diese Monate verfügbar sind.
+Jeder Durchlauf speichert seine Vorhersage und Evaluierungsmetriken direkt in der PostgreSQL-Datenbank (Tabellen `test_runs` und `predictions`). Bei nachfolgenden Durchläufen werden diese vergangenen Vorhersagen dynamisch als Trainingsdaten zurückgeführt, um Lücken zu überbrücken, bis die offiziellen BA-Daten für diese Monate verfügbar sind.
 
 ### Beispiel-Ausgabe
 
@@ -373,9 +405,9 @@ PolynomialFeatures(degree=2) → StandardScaler → LinearRegression
 
 Zusätzlich werden mehrere explizite scikit-learn Modelle (wie `DecisionTreeRegressor`, `KNeighborsRegressor`, `SVR` und `SGDRegressor`) als transparente Baselines evaluiert. Skalierungssensitive Modelle werden automatisch in einer `StandardScaler`-Pipeline gekapselt.
 
-### Vorhersagehistorie & Lückenüberbrückung
+### Historie & PostgreSQL-Persistierung
 
-Jeder Durchlauf speichert seine Vorhersage in `files/autosklearn_predictions.csv`. Bei nachfolgenden Durchläufen werden diese vergangenen Vorhersagen vorübergehend als Trainingszeilen integriert, um Lücken zu überbrücken, bis die offiziellen Daten für diese Monate verfügbar sind.
+Jeder Durchlauf speichert seine Vorhersage und Evaluierungsmetriken direkt in der PostgreSQL-Datenbank (Tabellen `test_runs` und `predictions`). Bei nachfolgenden Durchläufen werden diese vergangenen Vorhersagen dynamisch als Trainingsdaten zurückgeführt, um Lücken zu überbrücken, bis die offiziellen BA-Daten für diese Monate verfügbar sind.
 
 ### Hinweis zur Python-Version
 
@@ -435,6 +467,19 @@ PolynomialRegression (deg 2)   82.93  87250  67209
 ---
 
 ## Changelog
+
+### v1.2
+#### 📖 PostgreSQL-Datenbankschema & Airflow DAG-Dokumentation
+- **Architektur-Dokumentation** (`README.md`, `docs/DE.md`):
+  - Ergänzung einer umfassenden Beschreibung des PostgreSQL-Datenbankschemas für alle vier Tabellen: `unemployment_raw`, `predictions`, `test_runs` und `test_runs_archive`.
+  - Ergänzung eines Airflow DAG-Abschnitts mit Ausführungsplan, ShortCircuitOperator-Ablaufsteuerung und Pipeline-Schritten (`fetch_data` → `automl_forecast` → `autosklearn_forecast`).
+  - Entfernung aller veralteten v1.0-CSV-Referenzen (`files/automl_predictions.csv`, `files/autosklearn_predictions.csv`, `files/unified_predictions.md`) zugunsten von PostgreSQL als Single Source of Truth.
+
+#### 🎨 Sequenzielles vertikales UI-Layout & Scroll-Persistenz
+- **Sequenzielles vertikales Layout** (`streamlit/ui/tables.py`):
+  - Ersatz der horizontalen Tab-Navigation für Datenbanktabellen und Ausführungs-Logs durch eine übersichtliche, sequenzielle vertikale Ansicht für bessere Lesbarkeit.
+- **Erweiterte Scroll-Persistenz** (`streamlit/ui/scroll_persister.py`):
+  - Überarbeitung der Scroll-Persistenz-Logik mit Tab-Tracking und zustandsbehafteten Callbacks zur zuverlässigen Beibehaltung exakter Scrollpositionen bei Streamlit-Reruns.
 
 ### v1.1
 #### 🏛️ Zentralisierte Docker-Architektur & Ausführung

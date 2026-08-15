@@ -91,58 +91,43 @@ def render_model_performance_viewer(df: pd.DataFrame, title: str, selectbox_key:
     )
 
 
-@st.fragment
 def render_database_browser(df_raw, df_pred_all, df_runs, df_archive, t):
-    """Renders the interactive database and evaluation logs browser fragment."""
+    """Renders all database tables and evaluation logs sequentially (hintereinander)."""
     st.session_state["t_dict"] = t
-    table_labels = {
-        "unemployment_raw": t["raw_records_label"],
-        "predictions": t["promoted_label"],
-        "test_runs": t["active_runs_label"],
-        "test_runs_archive": t["archived_logs_label"],
-    }
-    tab_cols = st.columns(4)
-    tables = ["unemployment_raw", "predictions", "test_runs", "test_runs_archive"]
-    for idx, table_name in enumerate(tables):
-        with tab_cols[idx]:
-            is_active = st.session_state.selected_table == table_name
-            if st.button(
-                table_labels[table_name],
-                key=f"btn_tab_{table_name}",
-                type="primary" if is_active else "secondary",
-                use_container_width=True,
-            ):
-                st.session_state.selected_table = table_name
-                st.query_params["table"] = table_name
-                st.rerun()
 
-    st.write("")  # spacing
-
-    # Render selected table container
-    if st.session_state.selected_table == "unemployment_raw":
-        df_raw_renamed = df_raw.rename(
-            columns={
-                "year": "Year",
-                "month": "Month",
-                "unemployment": "Unemployment",
-            }
-        )
-        st.dataframe(
-            df_raw_renamed.sort_values("Date", ascending=False)[
-                ["Year", "Month", "Unemployment"]
-            ].style.format(
-                {
-                    "Unemployment": lambda x: (
-                        f"{int(x):,}" if pd.notna(x) else "None"
-                    ),
-                    "Year": "{:.0f}",
+    # 1. Raw History Records
+    with st.container(border=True):
+        st.subheader(t["raw_records_label"])
+        if not df_raw.empty:
+            df_raw_renamed = df_raw.rename(
+                columns={
+                    "year": "Year",
+                    "month": "Month",
+                    "unemployment": "Unemployment",
                 }
-            ),
-            use_container_width=True,
-            hide_index=True,
-        )
+            )
+            st.dataframe(
+                df_raw_renamed.sort_values("Date", ascending=False)[
+                    ["Year", "Month", "Unemployment"]
+                ].style.format(
+                    {
+                        "Unemployment": lambda x: (
+                            f"{int(x):,}" if pd.notna(x) else "None"
+                        ),
+                        "Year": "{:.0f}",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.info("No raw history records available.")
 
-    elif st.session_state.selected_table == "predictions":
+    st.write("")
+
+    # 2. Promoted Predictions
+    with st.container(border=True):
+        st.subheader(t["promoted_label"])
         if not df_pred_all.empty:
             df_pred_all_renamed = df_pred_all.rename(
                 columns={
@@ -158,22 +143,16 @@ def render_database_browser(df_raw, df_pred_all, df_runs, df_archive, t):
                     "mae": "MAE",
                 }
             )
-            # Abbreviate Model Name
             df_pred_all_renamed["Model"] = df_pred_all_renamed["Model"].map(
                 clean_model_name
             )
-            # Split Timestamp into Date and Time (localized to Europe/Berlin)
             run_dt = pd.to_datetime(df_pred_all_renamed["RunTimestamp"])
             if not run_dt.empty:
                 if run_dt.dt.tz is None:
                     run_dt = run_dt.dt.tz_localize("UTC")
                 run_dt = run_dt.dt.tz_convert("Europe/Berlin")
-            df_pred_all_renamed["Date"] = run_dt.dt.strftime("%Y-%m-%d").fillna(
-                "N/A"
-            )
-            df_pred_all_renamed["Time"] = run_dt.dt.strftime("%H:%M:%S").fillna(
-                "N/A"
-            )
+            df_pred_all_renamed["Date"] = run_dt.dt.strftime("%Y-%m-%d").fillna("N/A")
+            df_pred_all_renamed["Time"] = run_dt.dt.strftime("%H:%M:%S").fillna("N/A")
 
             st.dataframe(
                 df_pred_all_renamed[
@@ -206,12 +185,20 @@ def render_database_browser(df_raw, df_pred_all, df_runs, df_archive, t):
         else:
             st.info(t["no_promoted_models"])
 
-    elif st.session_state.selected_table == "test_runs":
+    st.write("")
+
+    # 3. Active Test Runs
+    with st.container(border=True):
+        st.subheader(t["active_runs_label"])
         render_model_performance_viewer(
             df_runs, t["compare_runs_title"], "active_runs_metric_select"
         )
 
-    elif st.session_state.selected_table == "test_runs_archive":
+    st.write("")
+
+    # 4. Archived Test Logs
+    with st.container(border=True):
+        st.subheader(t["archived_logs_label"])
         render_model_performance_viewer(
             df_archive, t["compare_runs_title"], "archived_runs_metric_select"
         )

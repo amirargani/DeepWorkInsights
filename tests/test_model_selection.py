@@ -197,3 +197,175 @@ def test_archive_test_runs(mock_engine):
         assert len(archived) == 1
         assert archived[0][0] == 8
         assert archived[0][1] == "ModelA"
+
+
+@patch('packages.common.get_db_engine')
+def test_archive_test_runs_max_active_limit(mock_engine):
+    """Verify that archive_test_runs caps active test runs at 5 and moves excess older runs to archive."""
+    test_engine = sa.create_engine("sqlite:///:memory:")
+    mock_engine.return_value = test_engine
+
+    metadata = sa.MetaData()
+    test_runs = sa.Table(
+        "test_runs",
+        metadata,
+        sa.Column("framework", sa.String(20)),
+        sa.Column("year", sa.Integer),
+        sa.Column("month", sa.Integer),
+        sa.Column("run_timestamp", sa.DateTime),
+        sa.Column("prediction", sa.Integer),
+        sa.Column("model", sa.String(255)),
+        sa.Column("r2", sa.Float),
+        sa.Column("rmse", sa.Float),
+        sa.Column("mae", sa.Float),
+    )
+    test_runs_archive = sa.Table(
+        "test_runs_archive",
+        metadata,
+        sa.Column("framework", sa.String(20)),
+        sa.Column("year", sa.Integer),
+        sa.Column("month", sa.Integer),
+        sa.Column("run_timestamp", sa.DateTime),
+        sa.Column("prediction", sa.Integer),
+        sa.Column("model", sa.String(255)),
+        sa.Column("r2", sa.Float),
+        sa.Column("rmse", sa.Float),
+        sa.Column("mae", sa.Float),
+    )
+    metadata.create_all(test_engine)
+
+    # Insert 7 mock test runs for automl on the SAME date (2026-08-16) at different hours
+    runs_data = []
+    for i in range(1, 8):
+        runs_data.append({
+            "framework": "automl",
+            "year": 2026,
+            "month": 8,
+            "run_timestamp": datetime(2026, 8, 16, i, 0),
+            "prediction": 3000000 + i * 1000,
+            "model": f"Model_{i}",
+            "r2": 90.0 + i,
+            "rmse": 50000.0 - i * 100,
+            "mae": 30000.0,
+        })
+
+    with test_engine.connect() as conn:
+        conn.execute(test_runs.insert().values(runs_data))
+        conn.commit()
+
+    # Run archive with max_active_per_framework=5
+    archive_test_runs("automl", max_active_per_framework=5)
+
+    with test_engine.connect() as conn:
+        active = conn.execute(sa.text("SELECT model FROM test_runs ORDER BY run_timestamp DESC")).fetchall()
+        assert len(active) == 5
+        active_models = [r[0] for r in active]
+        # Most recent 5 of the same date should remain active: Model_7, Model_6, Model_5, Model_4, Model_3
+        assert active_models == ["Model_7", "Model_6", "Model_5", "Model_4", "Model_3"]
+
+        archived = conn.execute(sa.text("SELECT model FROM test_runs_archive ORDER BY run_timestamp DESC")).fetchall()
+        assert len(archived) == 2
+        archived_models = [r[0] for r in archived]
+        # Older 2 should be in archive: Model_2, Model_1
+        assert archived_models == ["Model_2", "Model_1"]
+
+
+@patch('packages.common.get_db_engine')
+def test_archive_test_runs_prior_date(mock_engine):
+    """Verify that archive_test_runs moves all runs from prior execution dates to archive."""
+    test_engine = sa.create_engine("sqlite:///:memory:")
+    mock_engine.return_value = test_engine
+
+    metadata = sa.MetaData()
+    test_runs = sa.Table(
+        "test_runs",
+        metadata,
+        sa.Column("framework", sa.String(20)),
+        sa.Column("year", sa.Integer),
+        sa.Column("month", sa.Integer),
+        sa.Column("run_timestamp", sa.DateTime),
+        sa.Column("prediction", sa.Integer),
+        sa.Column("model", sa.String(255)),
+        sa.Column("r2", sa.Float),
+        sa.Column("rmse", sa.Float),
+        sa.Column("mae", sa.Float),
+    )
+    test_runs_archive = sa.Table(
+        "test_runs_archive",
+        metadata,
+        sa.Column("framework", sa.String(20)),
+        sa.Column("year", sa.Integer),
+        sa.Column("month", sa.Integer),
+        sa.Column("run_timestamp", sa.DateTime),
+        sa.Column("prediction", sa.Integer),
+        sa.Column("model", sa.String(255)),
+        sa.Column("r2", sa.Float),
+        sa.Column("rmse", sa.Float),
+        sa.Column("mae", sa.Float),
+    )
+    metadata.create_all(test_engine)
+
+    # Insert 2 runs on prior date (2026-08-15) and 2 runs on latest date (2026-08-16)
+    runs_data = [
+        {
+            "framework": "automl",
+            "year": 2026,
+            "month": 8,
+            "run_timestamp": datetime(2026, 8, 15, 12, 0),
+            "prediction": 3000000,
+            "model": "Old_Model_1",
+            "r2": 90.0,
+            "rmse": 50000.0,
+            "mae": 30000.0,
+        },
+        {
+            "framework": "automl",
+            "year": 2026,
+            "month": 8,
+            "run_timestamp": datetime(2026, 8, 15, 18, 0),
+            "prediction": 3010000,
+            "model": "Old_Model_2",
+            "r2": 91.0,
+            "rmse": 49000.0,
+            "mae": 29000.0,
+        },
+        {
+            "framework": "automl",
+            "year": 2026,
+            "month": 8,
+            "run_timestamp": datetime(2026, 8, 16, 2, 0),
+            "prediction": 3020000,
+            "model": "New_Model_1",
+            "r2": 92.0,
+            "rmse": 48000.0,
+            "mae": 28000.0,
+        },
+        {
+            "framework": "automl",
+            "year": 2026,
+            "month": 8,
+            "run_timestamp": datetime(2026, 8, 16, 12, 0),
+            "prediction": 3030000,
+            "model": "New_Model_2",
+            "r2": 93.0,
+            "rmse": 47000.0,
+            "mae": 27000.0,
+        },
+    ]
+
+    with test_engine.connect() as conn:
+        conn.execute(test_runs.insert().values(runs_data))
+        conn.commit()
+
+    archive_test_runs("automl")
+
+    with test_engine.connect() as conn:
+        active = conn.execute(sa.text("SELECT model FROM test_runs ORDER BY run_timestamp DESC")).fetchall()
+        assert len(active) == 2
+        assert [r[0] for r in active] == ["New_Model_2", "New_Model_1"]
+
+        archived = conn.execute(sa.text("SELECT model FROM test_runs_archive ORDER BY run_timestamp DESC")).fetchall()
+        assert len(archived) == 2
+        assert [r[0] for r in archived] == ["Old_Model_2", "Old_Model_1"]
+
+

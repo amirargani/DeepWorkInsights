@@ -1,3 +1,9 @@
+"""Global CSS styles injector module.
+
+Injects custom CSS overrides into the Streamlit app DOM to handle stale element
+hiding, radio control visibility, and equal-height layout formatting for KPI cards.
+"""
+
 import streamlit as st
 
 

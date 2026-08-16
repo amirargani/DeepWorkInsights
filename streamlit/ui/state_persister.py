@@ -1,5 +1,14 @@
+"""Browser localStorage state persistence component module.
+
+Persists and hydrates user-selected language preferences (EN/DE) in the browser's
+localStorage using Streamlit components.v1 HTML/JS execution.
+"""
+
 import streamlit as st
-import streamlit.components.v1 as components
+try:
+    import streamlit.components.v1 as components
+except ImportError:
+    components = None
 
 
 def render_lang_persister():

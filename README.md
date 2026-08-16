@@ -488,6 +488,22 @@ PolynomialRegression (deg 2)   82.93  87250  67209
 
 ## Changelog
 
+### v1.3
+#### 🇩🇪 German Localization & Language-Aware Formatters
+- **Dedicated Formatter Module** (`streamlit/ui/formatters.py`):
+  - New module with locale-sensitive formatting functions for numbers (`format_number`) and percentages (`format_percent`), switching between German (dot-separated thousands, comma decimal) and English notation based on active language selection.
+- **Full Dashboard & Monitoring Localization** (`streamlit/app_pages/dashboard.py`, `streamlit/app_pages/monitoring.py`, `streamlit/ui/tables.py`):
+  - Localized all metric card titles, KPI labels, Plotly chart axis titles, tooltips, table column headers, and log inspection controls based on the active EN/DE language toggle.
+- **Module-Level Documentation**:
+  - Added comprehensive module docstrings and inline documentation across all backend packages (`packages/automl.py`, `packages/autosklearn.py`, `packages/common.py`, `packages/dashboard_data.py`, `packages/fetch_data.py`, `packages/model_selection.py`, `packages/monitoring_data.py`) and Streamlit UI modules.
+
+#### 🗄️ Automated Test Run Archival & Record Capping
+- **Configurable Active Record Cap** (`packages/model_selection.py`, `packages/common.py`):
+  - `archive_test_runs` now enforces a configurable maximum of 5 active test run records per framework per day, automatically archiving the oldest excess entries to `test_runs_archive`.
+  - Archival is triggered automatically after each prediction run, keeping `test_runs` lean and preventing unbounded growth.
+- **Expanded Test Suite** (`tests/test_model_selection.py`, `tests/test_streamlit_views.py`):
+  - Added comprehensive unit tests covering the cap enforcement logic, archival triggers, boundary conditions, and framework isolation.
+
 ### v1.2
 #### 📖 PostgreSQL Database Schema & Airflow DAG Documentation
 - **Architecture Documentation** (`README.md`, `docs/DE.md`):

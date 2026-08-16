@@ -17,21 +17,9 @@ from . import fetch_data
 # Suppress non-critical warnings from pandas, numpy and sklearn during runtime
 warnings.filterwarnings("ignore")
 
-import os
-import math
-import warnings
-import numpy as np
-import pandas as pd
-import sqlalchemy as sa
-from pathlib import Path
-from datetime import datetime
-from . import fetch_data
-
-# Suppress non-critical warnings from pandas, numpy and sklearn during runtime
-warnings.filterwarnings("ignore")
-
 # How many rows of the leaderboard are printed to the console
 TOP_MODELS_TO_SHOW = 10
+
 
 
 _DB_ENGINE = None
@@ -498,6 +486,11 @@ def save_prediction(
             )
             conn.commit()
         print(f"Test run prediction saved to database table 'test_runs' for {framework}")
+        try:
+            from .model_selection import archive_test_runs
+            archive_test_runs(framework=framework)
+        except Exception as err:
+            print(f"[WARNING] Could not run test run archival: {err}")
         return
 
     # Production mode: Save to PostgreSQL database predictions table

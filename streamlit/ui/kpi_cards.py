@@ -1,5 +1,12 @@
+"""KPI metric cards UI component module.
+
+Renders high-level summary cards displaying the latest actual unemployment figures
+from the BA alongside the most recent H2O AutoML and Auto-sklearn forecasts.
+"""
+
 import pandas as pd
 import streamlit as st
+from ui.formatters import format_number, format_percent
 from ui.tables import clean_model_name
 
 
@@ -14,6 +21,7 @@ def render_kpi_cards(
     latest_automl,
     latest_autosklearn,
     t: dict,
+    lang: str = "EN",
 ):
     """Renders the top row of KPI metric cards for Actuals, H2O AutoML, and Auto-sklearn forecasts."""
     kpi_cols = st.columns(3)
@@ -21,7 +29,7 @@ def render_kpi_cards(
     with kpi_cols[0]:
         with st.container(border=True):
             st.markdown(f"**{t['actual_label']}**")
-            st.subheader(f"{latest_raw_val:,}")
+            st.subheader(format_number(latest_raw_val, lang))
             st.caption(f"{t['refers_to']} {latest_raw_date}")
             st.markdown(f":material/calendar_month: {t['official_data']}")
 
@@ -29,7 +37,7 @@ def render_kpi_cards(
         with st.container(border=True):
             st.markdown(f"**{t['automl_label']}**")
             if latest_automl is not None:
-                st.subheader(f"{int(latest_automl['prediction']):,}")
+                st.subheader(format_number(latest_automl['prediction'], lang))
                 target_dt = pd.to_datetime(latest_automl["target_date"])
                 target_str = (
                     f"{t['month_names'][target_dt.month]} {target_dt.year}"
@@ -37,9 +45,9 @@ def render_kpi_cards(
                 st.caption(f"{t['target']} {target_str}")
 
                 model_val = clean_model_name(latest_automl["model"])
-                r2_val = f"{latest_automl['r2']:.2f}%"
-                rmse_val = f"{int(latest_automl['rmse']):,}"
-                mae_val = f"{int(latest_automl['mae']):,}"
+                r2_val = format_percent(latest_automl['r2'], lang)
+                rmse_val = format_number(latest_automl['rmse'], lang)
+                mae_val = format_number(latest_automl['mae'], lang)
 
                 st.markdown(
                     f"**{t['model_prefix']}**: {styled_code(model_val)} | "
@@ -55,7 +63,7 @@ def render_kpi_cards(
         with st.container(border=True):
             st.markdown(f"**{t['autosklearn_label']}**")
             if latest_autosklearn is not None:
-                st.subheader(f"{int(latest_autosklearn['prediction']):,}")
+                st.subheader(format_number(latest_autosklearn['prediction'], lang))
                 target_dt = pd.to_datetime(latest_autosklearn["target_date"])
                 target_str = (
                     f"{t['month_names'][target_dt.month]} {target_dt.year}"
@@ -63,9 +71,9 @@ def render_kpi_cards(
                 st.caption(f"{t['target']} {target_str}")
 
                 model_val = clean_model_name(latest_autosklearn["model"])
-                r2_val = f"{latest_autosklearn['r2']:.2f}%"
-                rmse_val = f"{int(latest_autosklearn['rmse']):,}"
-                mae_val = f"{int(latest_autosklearn['mae']):,}"
+                r2_val = format_percent(latest_autosklearn['r2'], lang)
+                rmse_val = format_number(latest_autosklearn['rmse'], lang)
+                mae_val = format_number(latest_autosklearn['mae'], lang)
 
                 st.markdown(
                     f"**{t['model_prefix']}**: {styled_code(model_val)} | "
@@ -76,3 +84,4 @@ def render_kpi_cards(
                 )
             else:
                 st.write(t["no_pred_avail"])
+

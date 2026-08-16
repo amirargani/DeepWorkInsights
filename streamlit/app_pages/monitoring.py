@@ -1,3 +1,5 @@
+"""System & Airflow Monitoring page module."""
+
 import concurrent.futures
 import re
 from datetime import datetime
@@ -13,11 +15,13 @@ from packages.monitoring_data import (
     get_docker_client,
     parse_container_logs,
 )
-from ui import clean_model_name
+from ui import clean_model_name, format_number, format_percent, get_plotly_separators
 
 # ─── Live Docker Service Monitor Fragment ──────────────────────────────────────
 @st.fragment
 def render_docker_monitor(lang="EN"):
+    """Renders Docker containers status and resource utilization monitoring table."""
+
     t = TRANSLATIONS[lang]
     st.subheader(t["docker_sub"])
     
@@ -34,6 +38,7 @@ def render_docker_monitor(lang="EN"):
         return
     
     def fetch_metrics(c):
+        """Fetch CPU and memory performance stats for a single Docker container."""
         if c.status == "running":
             return get_container_metrics(c)
         return {"CPU (%)": "0.0%", "Memory (MB)": "0.0 MB", "Memory (%)": "0.0%"}
@@ -68,33 +73,56 @@ def render_docker_monitor(lang="EN"):
             except Exception:
                 img_name = "Unknown"
         
+        cpu_val = metrics["CPU (%)"]
+        mem_mb_val = metrics["Memory (MB)"]
+        mem_pct_val = metrics["Memory (%)"]
+
+        if lang == "DE":
+            cpu_val = str(cpu_val).replace(".", ",")
+            mem_mb_val = str(mem_mb_val).replace(".", ",")
+            mem_pct_val = str(mem_pct_val).replace(".", ",")
+
         container_data.append({
             "Name": c.name,
             "Status": c.status.upper(),
             "Image": img_name,
-            "CpuUsage": metrics["CPU (%)"],
-            "MemoryUsage": metrics["Memory (MB)"],
-            "MemoryPct": metrics["Memory (%)"],
+            "CpuUsage": cpu_val,
+            "MemoryUsage": mem_mb_val,
+            "MemoryPct": mem_pct_val,
             "Ports": ports
         })
             
-    df_c = pd.DataFrame(container_data)
-    
-    # Styled Display
     def style_status(val):
-        color = "#34D399" if val == "RUNNING" else "#F87171"
+        """Apply color coding to container status (green for RUNNING, red otherwise)."""
+        color = "#34D399" if str(val).upper() == "RUNNING" else "#F87171"
         return f"color: {color}; font-weight: bold;"
 
-    st.dataframe(
-        df_c.style.map(style_status, subset=["Status"]),
-        use_container_width=True,
-        hide_index=True
-    )
+    df_c = pd.DataFrame(container_data)
+    if not df_c.empty:
+        df_c_renamed = df_c.rename(columns={
+            "Name": "Container",
+            "Status": "Status",
+            "Image": "Image",
+            "CpuUsage": "CPU (%)",
+            "MemoryUsage": "Speicher (MB)" if lang == "DE" else "Memory (MB)",
+            "MemoryPct": "Speicher (%)" if lang == "DE" else "Memory (%)",
+            "Ports": "Ports"
+        })
+
+        st.dataframe(
+            df_c_renamed.style.map(style_status, subset=["Status"]),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("No container information available.")
 
 # ─── Live Airflow Status Fragment ──────────────────────────────────────────────
 @st.fragment
 def render_airflow_monitor(lang="EN"):
+    """Renders Airflow DAG execution stats, task states, control actions, and duration charts."""
     t = TRANSLATIONS[lang]
+
     st.subheader(t["airflow_sub"])
     
     engine = get_db_engine()
@@ -133,16 +161,16 @@ def render_airflow_monitor(lang="EN"):
     col_success, col_failed, col_running, col_queued = st.columns(4)
     with col_success:
         with st.container(border=True):
-            st.metric(t["col_success"], states_map.get("success", 0))
+            st.metric(t["col_success"], format_number(states_map.get("success", 0), lang))
     with col_failed:
         with st.container(border=True):
-            st.metric(t["col_failed"], states_map.get("failed", 0))
+            st.metric(t["col_failed"], format_number(states_map.get("failed", 0), lang))
     with col_running:
         with st.container(border=True):
-            st.metric(t["col_running"], states_map.get("running", 0))
+            st.metric(t["col_running"], format_number(states_map.get("running", 0), lang))
     with col_queued:
         with st.container(border=True):
-            st.metric(t["col_queued"], states_map.get("queued", 0))
+            st.metric(t["col_queued"], format_number(states_map.get("queued", 0), lang))
 
     st.write("")
     
@@ -151,9 +179,9 @@ def render_airflow_monitor(lang="EN"):
         st.markdown(f"**{t['dag_title']}**")
         
         df_dags_renamed = df_dags.rename(columns={
-            "dag_id": "DagId",
-            "is_active": "IsActive",
-            "is_paused": "IsPaused"
+            "dag_id": "DAG ID",
+            "is_active": "Aktiv" if lang == "DE" else "Active",
+            "is_paused": "Pausiert" if lang == "DE" else "Paused"
         })
         
         # Determine if the DAG is running or queued
@@ -238,6 +266,7 @@ def render_airflow_monitor(lang="EN"):
         st.markdown(f"**{t['dag_runs_title']}**")
         
         def style_run_state(val):
+            """Apply text color coding to DAG Run state (green for success, red for failed, orange running/queued)."""
             if val == "success":
                 return "color: #34D399; font-weight: bold;"
             elif val == "failed":
@@ -293,8 +322,8 @@ def render_airflow_monitor(lang="EN"):
             if not automl_matches.empty:
                 best_automl = automl_matches.sort_values(by="r2", ascending=False).iloc[0]
                 automl_models.append(best_automl["model"])
-                automl_r2s.append(f"{best_automl['r2']:.2f}%" if pd.notna(best_automl['r2']) else "N/A")
-                automl_rmses.append(f"{int(best_automl['rmse']):,}" if pd.notna(best_automl['rmse']) else "N/A")
+                automl_r2s.append(format_percent(best_automl['r2'], lang) if pd.notna(best_automl['r2']) else "N/A")
+                automl_rmses.append(format_number(best_automl['rmse'], lang) if pd.notna(best_automl['rmse']) else "N/A")
             else:
                 automl_models.append("N/A")
                 automl_r2s.append("N/A")
@@ -305,8 +334,8 @@ def render_airflow_monitor(lang="EN"):
             if not autosklearn_matches.empty:
                 best_autosklearn = autosklearn_matches.sort_values(by="r2", ascending=False).iloc[0]
                 autosklearn_models.append(best_autosklearn["model"])
-                autosklearn_r2s.append(f"{best_autosklearn['r2']:.2f}%" if pd.notna(best_autosklearn['r2']) else "N/A")
-                autosklearn_rmses.append(f"{int(best_autosklearn['rmse']):,}" if pd.notna(best_autosklearn['rmse']) else "N/A")
+                autosklearn_r2s.append(format_percent(best_autosklearn['r2'], lang) if pd.notna(best_autosklearn['r2']) else "N/A")
+                autosklearn_rmses.append(format_number(best_autosklearn['rmse'], lang) if pd.notna(best_autosklearn['rmse']) else "N/A")
             else:
                 autosklearn_models.append("N/A")
                 autosklearn_r2s.append("N/A")
@@ -320,35 +349,49 @@ def render_airflow_monitor(lang="EN"):
         df_runs["Auto-sklearn R²"] = autosklearn_r2s
         df_runs["Auto-sklearn RMSE"] = autosklearn_rmses
 
-        # Localize start_date and end_date to Europe/Berlin timezone for display
         def localize_to_berlin(val):
+            """Convert UTC timestamp to formatted Europe/Berlin local time string."""
             if pd.isna(val):
                 return "N/A"
             dt = pd.to_datetime(val)
             if dt.tz is None:
                 dt = dt.tz_localize('UTC')
-            return dt.tz_convert('Europe/Berlin').strftime("%Y-%m-%d %H:%M:%S")
+            date_fmt = "%d.%m.%Y %H:%M:%S" if lang == "DE" else "%Y-%m-%d %H:%M:%S"
+            return dt.tz_convert('Europe/Berlin').strftime(date_fmt)
+
+        start_hdr = "Startzeit" if lang == "DE" else "Start Time"
+        end_hdr = "Endzeit" if lang == "DE" else "End Time"
+        dur_hdr = "Dauer" if lang == "DE" else "Duration"
+        state_hdr = "Status" if lang == "DE" else "State"
+        log_date_hdr = "Logisches Datum (UTC)" if lang == "DE" else "Logical Date (UTC)"
+        automl_mod_hdr = "AutoML Modell" if lang == "DE" else "AutoML Model"
+        autosk_mod_hdr = "Auto-sklearn Modell" if lang == "DE" else "Auto-sklearn Model"
 
         df_runs_renamed = df_runs.copy()
-        df_runs_renamed["Start Time"] = df_runs_renamed["start_date"].apply(localize_to_berlin)
-        df_runs_renamed["End Time"] = df_runs_renamed["end_date"].apply(localize_to_berlin)
+        df_runs_renamed[start_hdr] = df_runs_renamed["start_date"].apply(localize_to_berlin)
+        df_runs_renamed[end_hdr] = df_runs_renamed["end_date"].apply(localize_to_berlin)
 
         df_runs_renamed = df_runs_renamed.rename(columns={
-            "run_id": "RunId",
-            "state": "State",
-            "execution_date": "Logical Date (UTC)"
+            "run_id": "Run ID",
+            "state": state_hdr,
+            "execution_date": log_date_hdr,
+            "Duration": dur_hdr,
+            "AutoML Model": automl_mod_hdr,
+            "Auto-sklearn Model": autosk_mod_hdr,
         })
-        
+
         display_cols = [
-            "RunId", "State", "Start Time", "End Time", "Duration", "Logical Date (UTC)",
-            "AutoML Model", "AutoML R²", "AutoML RMSE",
-            "Auto-sklearn Model", "Auto-sklearn R²", "Auto-sklearn RMSE"
+            "Run ID", state_hdr, start_hdr, end_hdr, dur_hdr, log_date_hdr,
+            automl_mod_hdr, "AutoML R²", "AutoML RMSE",
+            autosk_mod_hdr, "Auto-sklearn R²", "Auto-sklearn RMSE"
         ]
-        
+
+        date_fmt = "%d.%m.%Y %H:%M:%S" if lang == "DE" else "%Y-%m-%d %H:%M:%S"
+
         st.dataframe(
             df_runs_renamed[display_cols].style.format({
-                "Logical Date (UTC)": lambda x: pd.to_datetime(x).strftime("%Y-%m-%d %H:%M:%S") if pd.notna(x) else "N/A"
-            }).map(style_run_state, subset=["State"]),
+                log_date_hdr: lambda x: pd.to_datetime(x).strftime(date_fmt) if pd.notna(x) else "N/A"
+            }).map(style_run_state, subset=[state_hdr]),
             use_container_width=True,
             hide_index=True
         )
@@ -436,6 +479,7 @@ def render_airflow_monitor(lang="EN"):
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
+                    separators=get_plotly_separators(lang),
                     xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
                     yaxis=dict(title="R² Score (%)", range=[0, 100], showgrid=True, gridcolor="rgba(255,255,255,0.05)")
                 )
@@ -476,8 +520,9 @@ def render_airflow_monitor(lang="EN"):
                     showlegend=False,
                     paper_bgcolor="rgba(0,0,0,0)",
                     plot_bgcolor="rgba(0,0,0,0)",
+                    separators=get_plotly_separators(lang),
                     xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
-                    yaxis=dict(title="Duration (Minutes)", rangemode="tozero", showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+                    yaxis=dict(title="Duration (Minutes)" if lang == "EN" else "Ausführungsdauer (Minuten)", rangemode="tozero", showgrid=True, gridcolor="rgba(255,255,255,0.05)")
                 )
                 st.session_state.fig_dur = fig_dur
                 st.session_state.dur_chart_key = dur_chart_key
@@ -489,8 +534,10 @@ def render_airflow_monitor(lang="EN"):
 
 
 def render_monitoring(lang=None):
+    """Renders the main system and Airflow monitoring page."""
     if lang is None:
         lang = st.session_state.get("language", "EN")
+
     t = TRANSLATIONS[lang]
     st.markdown(t["monitoring_desc"])
     render_docker_monitor(lang)
@@ -542,6 +589,7 @@ def render_monitoring(lang=None):
                 st.caption(f"Logs for **{selected_container_name}** (tail: {num_lines})")
                 if not logs_df.empty:
                     def style_level(val):
+                        """Apply text color coding to log levels (green for INFO, red for ERROR, orange for WARNING)."""
                         if val == "INFO":
                             return "color: #34D399; font-weight: bold;"
                         elif val in ["ERROR", "CRITICAL", "FAILED", "FATAL"]:
@@ -550,8 +598,21 @@ def render_monitoring(lang=None):
                             return "color: #FB923C; font-weight: bold;"
                         return ""
                     
+                    logs_df_display = logs_df.copy()
+                    if lang == "DE" and "Timestamp" in logs_df_display.columns:
+                        logs_df_display["Timestamp"] = logs_df_display["Timestamp"].apply(
+                            lambda x: pd.to_datetime(x).strftime("%d.%m.%Y %H:%M:%S") if pd.notna(x) else x
+                        )
+
+                    logs_df_renamed = logs_df_display.rename(columns={
+                        "Timestamp": "Zeitstempel" if lang == "DE" else "Timestamp",
+                        "Level": "Level",
+                        "Component": "Komponente" if lang == "DE" else "Component",
+                        "Message": "Nachricht" if lang == "DE" else "Message"
+                    })
+
                     st.dataframe(
-                        logs_df.style.map(style_level, subset=["Level"]),
+                        logs_df_renamed.style.map(style_level, subset=["Level"]),
                         use_container_width=True,
                         hide_index=True
                     )
@@ -592,6 +653,7 @@ def render_monitoring(lang=None):
                             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                             paper_bgcolor="rgba(0,0,0,0)",
                             plot_bgcolor="rgba(0,0,0,0)",
+                            separators=get_plotly_separators(lang),
                             xaxis=dict(title=t["log_time_x"], showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
                             yaxis=dict(title=t["log_time_y"], showgrid=True, gridcolor="rgba(255,255,255,0.05)")
                         )

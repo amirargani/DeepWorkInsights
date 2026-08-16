@@ -84,47 +84,100 @@ def select_and_promote(framework: str, target_date: datetime) -> bool:
     return True
 
 
-def archive_test_runs(framework: str, target_date: datetime) -> None:
-    """Move active test runs matching prior months to archive and delete active records.
-    
-    Only archives runs that are from months prior to the target month, keeping all
-    runs for the current target month in the active test_runs table.
+def archive_test_runs(
+    framework: str = None,
+    target_date: datetime = None,
+    max_active_per_framework: int = 5,
+) -> None:
+    """Move test runs matching prior months and runs exceeding max_active_per_framework to archive.
 
-    :param framework: AutoML framework name ('automl' or 'autosklearn').
-    :type framework: str
-    :param target_date: Target date object.
-    :type target_date: datetime.datetime
+    Keeps up to max_active_per_framework active test runs per framework in test_runs,
+    and moves all older test runs into test_runs_archive.
+
+    :param framework: Framework name ('automl', 'autosklearn', or None for all).
+    :type framework: str, optional
+    :param target_date: Target date object for prior month filtering, optional.
+    :type target_date: datetime.datetime, optional
+    :param max_active_per_framework: Maximum active runs to retain in test_runs per framework.
+    :type max_active_per_framework: int
     """
     from .common import get_db_engine
     import sqlalchemy as sa
     engine = get_db_engine()
 
-    # Copy from test_runs to test_runs_archive for months older than the target month
-    copy_query = sa.text(
-        "INSERT INTO test_runs_archive (framework, year, month, run_timestamp, prediction, model, r2, rmse, mae) "
-        "SELECT framework, year, month, run_timestamp, prediction, model, r2, rmse, mae "
-        "FROM test_runs "
-        "WHERE framework = :framework AND (year < :year OR (year = :year AND month < :month))"
-    )
-
-    # Delete from test_runs for months older than the target month
-    delete_query = sa.text(
-        "DELETE FROM test_runs "
-        "WHERE framework = :framework AND (year < :year OR (year = :year AND month < :month))"
-    )
+    frameworks = [framework] if framework else ["automl", "autosklearn"]
 
     with engine.connect() as conn:
-        conn.execute(
-            copy_query, 
-            {"framework": framework, "year": target_date.year, "month": target_date.month}
-        )
-        conn.execute(
-            delete_query, 
-            {"framework": framework, "year": target_date.year, "month": target_date.month}
-        )
+        for fw in frameworks:
+            # 1. Archive runs from prior target months if target_date is specified
+            if target_date is not None:
+                copy_prior_query = sa.text(
+                    "INSERT INTO test_runs_archive (framework, year, month, run_timestamp, prediction, model, r2, rmse, mae) "
+                    "SELECT framework, year, month, run_timestamp, prediction, model, r2, rmse, mae "
+                    "FROM test_runs "
+                    "WHERE framework = :framework AND (year < :year OR (year = :year AND month < :month))"
+                )
+                delete_prior_query = sa.text(
+                    "DELETE FROM test_runs "
+                    "WHERE framework = :framework AND (year < :year OR (year = :year AND month < :month))"
+                )
+                conn.execute(
+                    copy_prior_query, 
+                    {"framework": fw, "year": target_date.year, "month": target_date.month}
+                )
+                conn.execute(
+                    delete_prior_query, 
+                    {"framework": fw, "year": target_date.year, "month": target_date.month}
+                )
+
+            # 2. Archive runs from prior execution dates (date < latest_date) or excess runs for latest date
+            runs = conn.execute(
+                sa.text(
+                    "SELECT year, month, run_timestamp FROM test_runs "
+                    "WHERE framework = :framework "
+                    "ORDER BY run_timestamp DESC"
+                ),
+                {"framework": fw}
+            ).fetchall()
+
+            if runs:
+                latest_date = pd.to_datetime(runs[0][2]).date()
+                excess_runs = []
+                current_date_count = 0
+
+                for r in runs:
+                    r_date = pd.to_datetime(r[2]).date()
+                    if r_date < latest_date:
+                        # Prior execution date run -> Move to archive
+                        excess_runs.append(r)
+                    else:
+                        # Current latest execution date run
+                        current_date_count += 1
+                        if current_date_count > max_active_per_framework:
+                            excess_runs.append(r)
+
+                for r in excess_runs:
+                    conn.execute(
+                        sa.text(
+                            "INSERT INTO test_runs_archive (framework, year, month, run_timestamp, prediction, model, r2, rmse, mae) "
+                            "SELECT framework, year, month, run_timestamp, prediction, model, r2, rmse, mae "
+                            "FROM test_runs "
+                            "WHERE framework = :framework AND year = :year AND month = :month AND run_timestamp = :ts"
+                        ),
+                        {"framework": fw, "year": r[0], "month": r[1], "ts": r[2]}
+                    )
+                    conn.execute(
+                        sa.text(
+                            "DELETE FROM test_runs "
+                            "WHERE framework = :framework AND year = :year AND month = :month AND run_timestamp = :ts"
+                        ),
+                        {"framework": fw, "year": r[0], "month": r[1], "ts": r[2]}
+                    )
+
         conn.commit()
 
-    print(f"[{framework}] Archived test runs from previous months and kept current month's runs active.")
+    fw_str = framework if framework else "all frameworks"
+    print(f"[{fw_str}] Archived test runs successfully (active test_runs capped at {max_active_per_framework}).")
 
 
 def main() -> None:
@@ -169,5 +222,6 @@ def main() -> None:
         print("\nNo best models could be promoted (no test runs found for this month).")
 
 
+# Execute model promotion pipeline when module is run as a CLI command
 if __name__ == "__main__":
     main()

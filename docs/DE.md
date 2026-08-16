@@ -468,6 +468,22 @@ PolynomialRegression (deg 2)   82.93  87250  67209
 
 ## Changelog
 
+### v1.3
+#### 🇩🇪 Deutsche Lokalisierung & sprachbewusste Formatierer
+- **Eigenes Formatierer-Modul** (`streamlit/ui/formatters.py`):
+  - Neues Modul mit sprachsensitiven Formatierungsfunktionen für Zahlen (`format_number`) und Prozentwerte (`format_percent`), das je nach aktiver Sprachauswahl zwischen deutschem (Punkt als Tausendertrennzeichen, Komma als Dezimaltrennzeichen) und englischem Format umschaltet.
+- **Vollständige Dashboard- & Monitoring-Lokalisierung** (`streamlit/app_pages/dashboard.py`, `streamlit/app_pages/monitoring.py`, `streamlit/ui/tables.py`):
+  - Lokalisierung aller Metric-Card-Titel, KPI-Beschriftungen, Plotly-Chart-Achsentitel, Tooltips, Tabellenspalten-Köpfe und Log-Inspektions-Steuerungen basierend auf dem aktiven EN/DE-Sprachumschalter.
+- **Modul-Dokumentation**:
+  - Ergänzung umfassender Modul-Docstrings und Inline-Dokumentation in allen Backend-Paketen (`packages/automl.py`, `packages/autosklearn.py`, `packages/common.py`, `packages/dashboard_data.py`, `packages/fetch_data.py`, `packages/model_selection.py`, `packages/monitoring_data.py`) und Streamlit-UI-Modulen.
+
+#### 🗄️ Automatisierte Testlauf-Archivierung & Datensatz-Limitierung
+- **Konfigurierbares Datensatz-Limit** (`packages/model_selection.py`, `packages/common.py`):
+  - `archive_test_runs` erzwingt jetzt ein konfigurierbares Maximum von 5 aktiven Testlauf-Einträgen pro Framework pro Tag und archiviert automatisch die ältesten überschüssigen Einträge in `test_runs_archive`.
+  - Die Archivierung wird automatisch nach jedem Vorhersage-Lauf ausgelöst und hält `test_runs` schlank, um unbegrenztes Wachstum zu verhindern.
+- **Erweiterte Test-Suite** (`tests/test_model_selection.py`, `tests/test_streamlit_views.py`):
+  - Hinzufügen umfassender Unit-Tests für die Limit-Durchsetzungslogik, Archivierungs-Trigger, Randbedingungen und Framework-Isolation.
+
 ### v1.2
 #### 📖 PostgreSQL-Datenbankschema & Airflow DAG-Dokumentation
 - **Architektur-Dokumentation** (`README.md`, `docs/DE.md`):

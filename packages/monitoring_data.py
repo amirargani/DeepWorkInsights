@@ -1,3 +1,9 @@
+"""System and Docker monitoring data provider module.
+
+Provides Docker container resource footprint metrics, multi-format log regex parsing,
+and translation support for the system monitoring page.
+"""
+
 import os
 import sys
 import re

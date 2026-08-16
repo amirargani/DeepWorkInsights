@@ -280,5 +280,6 @@ def run() -> None:
             pass
 
 
+# Execute H2O AutoML pipeline when module is run as a CLI command
 if __name__ == "__main__":
     run()

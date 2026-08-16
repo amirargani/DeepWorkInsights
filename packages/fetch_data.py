@@ -219,5 +219,6 @@ def main() -> None:
     print(f"Database successfully updated: 'unemployment_raw' table ({len(merged)} records)")
 
 
+# Execute BA data fetching pipeline when module is run as a CLI command
 if __name__ == "__main__":
     main()

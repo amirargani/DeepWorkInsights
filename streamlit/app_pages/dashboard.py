@@ -1,3 +1,5 @@
+"""Forecasting Dashboard page module."""
+
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -10,6 +12,7 @@ from packages.dashboard_data import (
 )
 from ui import (
     clean_model_name,
+    format_number,
     render_database_browser,
     render_forecast_error_chart,
     render_historical_timeline_area_chart,
@@ -22,6 +25,8 @@ from ui import (
 
 
 def render_dashboard(lang=None):
+    """Renders the main forecasting dashboard including KPI cards, charts, and database browser."""
+
     if lang is None:
         lang = st.session_state.get("language", "EN")
     t = TRANSLATIONS[lang]
@@ -115,7 +120,7 @@ def render_dashboard(lang=None):
     )
 
     render_kpi_cards(
-        latest_raw_val, latest_raw_date, latest_automl, latest_autosklearn, t
+        latest_raw_val, latest_raw_date, latest_automl, latest_autosklearn, t, lang=lang
     )
 
     st.write("")
@@ -234,21 +239,22 @@ def render_dashboard(lang=None):
     metric_cols = st.columns(4)
     with metric_cols[0]:
         with st.container(border=True):
-            st.metric(t["raw_records_label"], len(df_raw))
+            st.metric(t["raw_records_label"], format_number(len(df_raw), lang))
     with metric_cols[1]:
         with st.container(border=True):
-            st.metric(t["promoted_label"], len(df_pred_all))
+            st.metric(t["promoted_label"], format_number(len(df_pred_all), lang))
     with metric_cols[2]:
         with st.container(border=True):
-            st.metric(t["active_runs_label"], len(df_runs))
+            st.metric(t["active_runs_label"], format_number(len(df_runs), lang))
     with metric_cols[3]:
         with st.container(border=True):
-            st.metric(t["archived_logs_label"], len(df_archive))
+            st.metric(t["archived_logs_label"], format_number(len(df_archive), lang))
 
     st.write("")
 
     # Render Database Browser Fragment
-    render_database_browser(df_raw, df_pred_all, df_runs, df_archive, t)
+    render_database_browser(df_raw, df_pred_all, df_runs, df_archive, t, lang=lang)
+
 
 
 if __name__ == "__main__":

@@ -1,9 +1,18 @@
+"""Plotly visualization functions for forecasting dashboard."""
+
 from datetime import datetime
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
+
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+except ImportError:
+    px = None
+    go = None
+
+from ui.formatters import format_number, get_plotly_separators
 
 
 def render_historical_timeline_chart(
@@ -16,12 +25,14 @@ def render_historical_timeline_chart(
     pred_hash: int,
 ):
     """Renders the historical actuals and model forecasts Plotly chart with caching."""
+    # Compute unique cache key for session state persistence
     timeline_key = hash((raw_hash, pred_hash, time_filter, lang))
     if (
         "timeline_key" not in st.session_state
         or st.session_state.timeline_key != timeline_key
         or "fig_timeline" not in st.session_state
     ):
+        # Filter raw actuals and configure X-axis grid
         df_raw_plot = df_raw_filtered.dropna(subset=["unemployment"])
         now = datetime.now()
         xaxis_config = dict(
@@ -35,6 +46,7 @@ def render_historical_timeline_chart(
 
         fig = go.Figure()
 
+        # Get latest known actual data point for connecting forecast lines
         if not df_raw_plot.empty:
             last_actual = df_raw_plot.iloc[-1]
             last_actual_date = last_actual["Date"]
@@ -43,6 +55,7 @@ def render_historical_timeline_chart(
             last_actual = None
             last_actual_date = pd.to_datetime("2026-07-01")
 
+        # Plot historical actuals line
         fig.add_trace(
             go.Scatter(
                 x=df_raw_plot["Date"],
@@ -55,7 +68,7 @@ def render_historical_timeline_chart(
             )
         )
 
-        # AutoML predictions
+        # Render H2O AutoML predictions trace
         if not df_pred_filtered.empty:
             df_pred_aml = df_pred_filtered[
                 df_pred_filtered["framework"] == "automl"
@@ -90,7 +103,7 @@ def render_historical_timeline_chart(
                         line=dict(color="#34D399", width=2, dash="dash"),
                         marker=dict(size=8, symbol="diamond"),
                         text=[
-                            f"{int(x):,}" if i == len(df_plot_aml) - 1 else ""
+                            format_number(x, lang) if i == len(df_plot_aml) - 1 else ""
                             for i, x in enumerate(df_plot_aml["prediction"])
                         ],
                         textposition="top center",
@@ -98,7 +111,7 @@ def render_historical_timeline_chart(
                     )
                 )
 
-            # Auto-sklearn predictions
+            # Render Auto-sklearn predictions trace
             df_pred_ask = df_pred_filtered[
                 df_pred_filtered["framework"] == "autosklearn"
             ]
@@ -132,7 +145,7 @@ def render_historical_timeline_chart(
                         line=dict(color="#FB923C", width=2, dash="dash"),
                         marker=dict(size=8, symbol="triangle-up"),
                         text=[
-                            f"{int(x):,}" if i == len(df_plot_ask) - 1 else ""
+                            format_number(x, lang) if i == len(df_plot_ask) - 1 else ""
                             for i, x in enumerate(df_plot_ask["prediction"])
                         ],
                         textposition="bottom center",
@@ -140,6 +153,7 @@ def render_historical_timeline_chart(
                     )
                 )
 
+        # Add vertical reference line for forecast start date
         fig.add_vline(
             x=last_actual_date,
             line_width=2,
@@ -150,6 +164,7 @@ def render_historical_timeline_chart(
             annotation_font=dict(color="#F1F5F9", size=10),
         )
 
+        # Highlight forecast horizon area when Current Year filter is active
         if time_filter == "Current Year":
             fig.add_vrect(
                 x0=last_actual_date,
@@ -165,10 +180,12 @@ def render_historical_timeline_chart(
         tick_vals = [0, 1000000, 2000000, 3000000, 4000000, 5000000]
         tick_text = t["y_axis_ticks"]
 
+        # Apply dark mode theme and localized number separators
         fig.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color="#F1F5F9"),
+            separators=get_plotly_separators(lang),
             xaxis=xaxis_config,
             yaxis=dict(
                 showgrid=True,
@@ -191,6 +208,7 @@ def render_historical_timeline_chart(
         fig = st.session_state.fig_timeline
 
     st.plotly_chart(fig, use_container_width=True)
+
 
 
 def render_historical_timeline_area_chart(
@@ -221,6 +239,7 @@ def render_historical_timeline_area_chart(
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             font_color="#F1F5F9",
+            separators=get_plotly_separators(lang),
             xaxis=dict(showgrid=True, gridcolor="#334155", hoverformat="%b %Y"),
             yaxis=dict(
                 showgrid=True,
@@ -253,12 +272,14 @@ def render_seasonality_chart(
     pred_hash: int,
 ):
     """Renders the seasonality distribution box plot and overlay traces with caching."""
+    # Compute unique cache key for session state persistence
     season_key = hash((raw_hash, pred_hash, lang))
     if (
         "season_key" not in st.session_state
         or st.session_state.season_key != season_key
         or "fig_season" not in st.session_state
     ):
+        # Extract historical records prior to current year for baseline distribution
         current_year = int(df_raw.dropna(subset=["unemployment"])["year"].max())
         df_season = df_raw[
             (df_raw["unemployment"].notnull()) & (df_raw["year"] < current_year)
@@ -267,6 +288,7 @@ def render_seasonality_chart(
         df_season["MonthName"] = df_season["month"].map(t["month_names"])
         df_season = df_season.sort_values("month")
 
+        # Create monthly box plot showing historical unemployment distribution
         fig_season = px.box(
             df_season,
             x="MonthName",
@@ -278,7 +300,10 @@ def render_seasonality_chart(
             color_discrete_sequence=["#334155"],
             points=False,
         )
+        # Apply integer hover formatting to box statistics
+        fig_season.update_traces(yhoverformat=",.0f", selector=dict(type="box"))
 
+        # Compute IQR and extract historical statistical outliers
         outlier_rows = []
         for m_name in df_season["MonthName"].unique():
             df_m = df_season[df_season["MonthName"] == m_name]
@@ -297,6 +322,7 @@ def render_seasonality_chart(
             if not df_out.empty:
                 outlier_rows.append(df_out)
 
+        # Overlay historical outlier points on box plot
         if outlier_rows:
             df_outliers = pd.concat(outlier_rows)
             for idx, row in df_outliers.iterrows():
@@ -312,6 +338,7 @@ def render_seasonality_chart(
                     )
                 )
 
+        # Overlay current year actual unemployment trajectory
         df_curr_actuals = df_raw[
             (df_raw["year"] == current_year) & (df_raw["unemployment"].notnull())
         ].copy()
@@ -332,6 +359,7 @@ def render_seasonality_chart(
             )
         )
 
+        # Overlay current year forecasts from H2O AutoML and Auto-sklearn
         if not df_pred.empty:
             df_curr_pred = df_pred[df_pred["year"] == current_year].copy()
             if not df_curr_pred.empty:
@@ -374,11 +402,13 @@ def render_seasonality_chart(
         tick_vals = [0, 1000000, 2000000, 3000000, 4000000, 5000000]
         tick_text = t["y_axis_ticks"]
 
+        # Configure dark mode chart layout and Y-axis scale
         fig_season.update_layout(
             hovermode="x",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color="#F1F5F9"),
+            separators=get_plotly_separators(lang),
             xaxis=dict(showgrid=False),
             yaxis=dict(
                 showgrid=True,
@@ -410,6 +440,7 @@ def render_forecast_error_chart(
     if df_archive.empty:
         return
 
+    # Join archived test run predictions with ground-truth actuals
     df_actuals_join = (
         df_raw.dropna(subset=["unemployment"])[["year", "month", "unemployment"]]
         .copy()
@@ -427,6 +458,7 @@ def render_forecast_error_chart(
     if df_errors.empty:
         return
 
+    # Calculate percentage prediction residuals
     df_errors["Error (%)"] = (
         (df_errors["prediction"] - df_errors["unemployment"])
         / df_errors["unemployment"]
@@ -439,12 +471,14 @@ def render_forecast_error_chart(
     )
     df_errors = df_errors.sort_values("Date")
 
+    # Compute unique cache key for session state persistence
     residuals_key = hash((archive_hash, raw_hash, lang))
     if (
         "residuals_key" not in st.session_state
         or st.session_state.residuals_key != residuals_key
         or "fig_residuals" not in st.session_state
     ):
+        # Render historical residual error line chart per AutoML framework
         fig_errors = px.line(
             df_errors,
             x="Date",
@@ -458,6 +492,7 @@ def render_forecast_error_chart(
             color_discrete_map={"automl": "#34D399", "autosklearn": "#FB923C"},
             markers=True,
         )
+        # Add horizontal zero-error reference line
         fig_errors.add_hline(
             y=0,
             line_dash="dash",
@@ -468,6 +503,7 @@ def render_forecast_error_chart(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(color="#F1F5F9"),
+            separators=get_plotly_separators(lang),
             xaxis=dict(showgrid=True, gridcolor="#334155", hoverformat="%b %Y"),
             yaxis=dict(showgrid=True, gridcolor="#334155"),
             margin=dict(l=40, r=40, t=20, b=40),
@@ -489,6 +525,7 @@ def render_yoy_change_chart(
     raw_hash: int,
 ):
     """Renders the Year-over-Year (YoY) percentage change bar chart with caching."""
+    # Compute 12-month percentage change from historical unemployment timeline
     df_yoy = df_raw.dropna(subset=["unemployment"]).copy()
     df_yoy = df_yoy.sort_values("Date").reset_index(drop=True)
     df_yoy["YoY Change (%)"] = df_yoy["unemployment"].pct_change(periods=12) * 100
@@ -496,6 +533,7 @@ def render_yoy_change_chart(
     df_yoy_plot = df_yoy_plot[df_yoy_plot["Date"] >= cutoff]
 
     if not df_yoy_plot.empty:
+        # Assign bar colors (red for positive change/increase, blue for negative change/decrease)
         df_yoy_plot["Color"] = df_yoy_plot["YoY Change (%)"].map(
             lambda x: "#F87171" if x > 0 else "#60A5FA"
         )
@@ -509,12 +547,14 @@ def render_yoy_change_chart(
         if time_filter == "Current Year":
             xaxis_config["range"] = [f"{now.year}-01-01", f"{now.year + 1}-01-01"]
 
+        # Compute unique cache key for session state persistence
         yoy_key = hash((raw_hash, time_filter, lang))
         if (
             "yoy_key" not in st.session_state
             or st.session_state.yoy_key != yoy_key
             or "fig_yoy" not in st.session_state
         ):
+            # Render YoY percentage change bar chart
             fig_yoy = px.bar(
                 df_yoy_plot,
                 x="Date",
@@ -533,6 +573,7 @@ def render_yoy_change_chart(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
                 font=dict(color="#F1F5F9"),
+                separators=get_plotly_separators(lang),
                 xaxis=xaxis_config,
                 yaxis=dict(showgrid=True, gridcolor="#334155"),
                 margin=dict(l=40, r=40, t=20, b=40),
@@ -545,3 +586,5 @@ def render_yoy_change_chart(
         st.plotly_chart(fig_yoy, use_container_width=True)
     else:
         st.info("Insufficient historical range to display YoY changes.")
+
+

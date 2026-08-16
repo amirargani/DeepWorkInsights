@@ -1,3 +1,9 @@
+"""Scroll position persistence component module.
+
+Injects inline HTML/JS onerror handlers into the Streamlit DOM to preserve
+and restore the window/container scroll position across app reruns.
+"""
+
 import time
 import streamlit as st
 

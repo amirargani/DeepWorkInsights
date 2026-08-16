@@ -1,8 +1,18 @@
+"""Navigation bar component with language selector and tab switching.
+
+Renders a sticky floating navigation bar component in HTML/JS that interacts with
+hidden Streamlit radio controls to switch tabs and language seamlessly.
+"""
+
 import streamlit as st
-import streamlit.components.v1 as components
+try:
+    import streamlit.components.v1 as components
+except ImportError:
+    components = None
 
 
 def _on_nav_tab_change():
+    """Callback triggered when active navigation tab radio selection changes."""
     selected = st.session_state.nav_tab_radio
     new_tab = "dashboard" if selected == "Forecasting" else "monitoring"
     st.session_state.active_tab = new_tab
@@ -10,6 +20,7 @@ def _on_nav_tab_change():
 
 
 def _on_nav_lang_change():
+    """Callback triggered when selected language radio option changes."""
     st.session_state.language = st.session_state.nav_lang_radio
 
 

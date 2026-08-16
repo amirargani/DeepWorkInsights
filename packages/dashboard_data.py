@@ -1,3 +1,9 @@
+"""Backend data loader module for the forecasting dashboard.
+
+Provides cached data fetching for raw historical BA data, promoted predictions,
+active model test runs, and test log archives from PostgreSQL, as well as DAG status checks.
+"""
+
 import os
 import sys
 import pandas as pd

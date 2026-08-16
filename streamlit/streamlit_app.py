@@ -1,3 +1,9 @@
+"""Main entry point orchestrating top navigation, scroll persistence, and language state hydration.
+
+This module initializes the Streamlit application layout, sets session state defaults,
+handles query parameter routing, and renders active tab contents.
+"""
+
 import os
 import sys
 

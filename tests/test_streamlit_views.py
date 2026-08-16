@@ -43,3 +43,26 @@ def test_benchmark_data_query():
         df = pd.read_sql("SELECT framework, year, month, run_timestamp, prediction, model, r2, rmse, mae FROM test_runs_archive ORDER BY run_timestamp DESC", conn)
     
     assert isinstance(df, pd.DataFrame)
+
+
+def test_number_formatters():
+    """Verify German vs English locale formatting for numbers, decimals, percentages, and Plotly separators."""
+    import sys
+    import os
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "streamlit")))
+    from ui.formatters import format_number, format_decimal, format_percent, get_plotly_separators
+
+    # German formatting checks
+    assert format_number(3007203, "DE") == "3.007.203"
+    assert format_number(58662, "DE") == "58.662"
+    assert format_percent(98.69, "DE") == "98,69%"
+    assert format_decimal(1234567.89, "DE") == "1.234.567,89"
+    assert get_plotly_separators("DE") == ",."
+
+    # English formatting checks
+    assert format_number(3007203, "EN") == "3,007,203"
+    assert format_number(58662, "EN") == "58,662"
+    assert format_percent(98.69, "EN") == "98.69%"
+    assert format_decimal(1234567.89, "EN") == "1,234,567.89"
+    assert get_plotly_separators("EN") == ".,"
+

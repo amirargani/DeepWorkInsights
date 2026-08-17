@@ -16,7 +16,7 @@ from ui.formatters import (
 )
 from ui.kpi_cards import render_kpi_cards
 from ui.navbar import render_navbar
-from ui.scroll_persister import render_scroll_persister
+from ui.scroll_persister import render_fragment_scroll_guard, render_scroll_persister
 from ui.state_persister import render_lang_persister
 from ui.styles import inject_global_styles
 from ui.tables import (
@@ -28,6 +28,7 @@ from ui.tables import (
 __all__ = [
     "inject_global_styles",
     "render_scroll_persister",
+    "render_fragment_scroll_guard",
     "render_lang_persister",
     "render_navbar",
     "render_kpi_cards",

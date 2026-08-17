@@ -15,13 +15,24 @@ from packages.monitoring_data import (
     get_docker_client,
     parse_container_logs,
 )
-from ui import clean_model_name, format_number, format_percent, get_plotly_separators
+from ui import (
+    clean_model_name,
+    format_number,
+    format_percent,
+    get_plotly_separators,
+    render_fragment_scroll_guard,
+)
 
 # ─── Live Docker Service Monitor Fragment ──────────────────────────────────────
-@st.fragment
+@st.fragment(run_every="30s")
 def render_docker_monitor(lang="EN"):
-    """Renders Docker containers status and resource utilization monitoring table."""
+    """Renders Docker containers status and resource utilization monitoring table.
 
+    Runs as a scoped fragment: only this section re-renders every 30s,
+    the rest of the page stays untouched.
+    """
+
+    render_fragment_scroll_guard("docker")
     t = TRANSLATIONS[lang]
     st.subheader(t["docker_sub"])
     
@@ -118,9 +129,14 @@ def render_docker_monitor(lang="EN"):
         st.info("No container information available.")
 
 # ─── Live Airflow Status Fragment ──────────────────────────────────────────────
-@st.fragment
+@st.fragment(run_every="30s")
 def render_airflow_monitor(lang="EN"):
-    """Renders Airflow DAG execution stats, task states, control actions, and duration charts."""
+    """Renders Airflow DAG execution stats, task states, control actions, and duration charts.
+
+    Runs as a scoped fragment: only this section re-renders every 30s.
+    Buttons (trigger, stop, pause) work normally and show toast notifications.
+    """
+    render_fragment_scroll_guard("airflow")
     t = TRANSLATIONS[lang]
 
     st.subheader(t["airflow_sub"])
@@ -443,51 +459,43 @@ def render_airflow_monitor(lang="EN"):
             # --- Chart 1: Model Performance (Full Width) ---
             st.markdown(f"**{t['chart_perf']}**")
             import plotly.graph_objects as go
-            
-            # Caching the performance chart in session state to prevent reload flashes
-            perf_chart_key = hash((runs_hash, test_runs_hash, lang))
-            if "perf_chart_key" not in st.session_state or st.session_state.perf_chart_key != perf_chart_key or "fig_perf" not in st.session_state:
-                fig_r2 = go.Figure()
-                
-                # Check if we have valid non-null columns
-                has_automl = "H2O AutoML" in df_plot.columns and df_plot["H2O AutoML"].notna().any()
-                has_autosklearn = "Auto-sklearn" in df_plot.columns and df_plot["Auto-sklearn"].notna().any()
-                
-                if has_automl:
-                    fig_r2.add_trace(go.Scatter(
-                        x=df_plot["ExecutionDate"],
-                        y=df_plot["H2O AutoML"],
-                        name="H2O AutoML",
-                        line=dict(color="#34D399", width=3),
-                        mode="lines+markers",
-                        hovertemplate="%{y:.2f}%<extra></extra>"
-                    ))
-                if has_autosklearn:
-                    fig_r2.add_trace(go.Scatter(
-                        x=df_plot["ExecutionDate"],
-                        y=df_plot["Auto-sklearn"],
-                        name="Auto-sklearn",
-                        line=dict(color="#FB923C", width=3),
-                        mode="lines+markers",
-                        hovertemplate="%{y:.2f}%<extra></extra>"
-                    ))
-                
-                fig_r2.update_layout(
-                    margin=dict(l=40, r=20, t=10, b=40),
-                    height=280,
-                    hovermode="x unified",
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    separators=get_plotly_separators(lang),
-                    xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
-                    yaxis=dict(title="R² Score (%)", range=[0, 100], showgrid=True, gridcolor="rgba(255,255,255,0.05)")
-                )
-                st.session_state.fig_perf = fig_r2
-                st.session_state.perf_chart_key = perf_chart_key
-            else:
-                fig_r2 = st.session_state.fig_perf
-                
+
+            fig_r2 = go.Figure()
+
+            # Check if we have valid non-null columns
+            has_automl = "H2O AutoML" in df_plot.columns and df_plot["H2O AutoML"].notna().any()
+            has_autosklearn = "Auto-sklearn" in df_plot.columns and df_plot["Auto-sklearn"].notna().any()
+
+            if has_automl:
+                fig_r2.add_trace(go.Scatter(
+                    x=df_plot["ExecutionDate"],
+                    y=df_plot["H2O AutoML"],
+                    name="H2O AutoML",
+                    line=dict(color="#34D399", width=3),
+                    mode="lines+markers",
+                    hovertemplate="%{y:.2f}%<extra></extra>"
+                ))
+            if has_autosklearn:
+                fig_r2.add_trace(go.Scatter(
+                    x=df_plot["ExecutionDate"],
+                    y=df_plot["Auto-sklearn"],
+                    name="Auto-sklearn",
+                    line=dict(color="#FB923C", width=3),
+                    mode="lines+markers",
+                    hovertemplate="%{y:.2f}%<extra></extra>"
+                ))
+
+            fig_r2.update_layout(
+                margin=dict(l=40, r=20, t=10, b=40),
+                height=280,
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                separators=get_plotly_separators(lang),
+                xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+                yaxis=dict(title="R² Score (%)", range=[0, 100], showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+            )
             st.plotly_chart(fig_r2, use_container_width=True)
             
             st.write("")
@@ -495,40 +503,32 @@ def render_airflow_monitor(lang="EN"):
             # --- Chart 2: Execution Duration (Full Width) ---
             st.markdown(f"**{t['chart_dur']}**")
             import plotly.graph_objects as go
-            
-            # Caching the duration chart in session state to prevent reload flashes
-            dur_chart_key = hash((runs_hash, test_runs_hash, lang))
-            if "dur_chart_key" not in st.session_state or st.session_state.dur_chart_key != dur_chart_key or "fig_dur" not in st.session_state:
-                fig_dur = go.Figure()
-                
-                # Area chart: Line + Markers with a soft transparent blue fill underneath
-                fig_dur.add_trace(go.Scatter(
-                    x=df_plot["ExecutionDate"],
-                    y=df_plot["Duration"],
-                    name="Duration",
-                    line=dict(color="#3B82F6", width=3),
-                    mode="lines+markers",
-                    fill="tozeroy",
-                    fillcolor="rgba(59, 130, 246, 0.15)",
-                    hovertemplate="%{y:.2f} min<extra></extra>"
-                ))
-                
-                fig_dur.update_layout(
-                    margin=dict(l=40, r=20, t=10, b=40),
-                    height=280,
-                    hovermode="x unified",
-                    showlegend=False,
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    separators=get_plotly_separators(lang),
-                    xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
-                    yaxis=dict(title="Duration (Minutes)" if lang == "EN" else "Ausführungsdauer (Minuten)", rangemode="tozero", showgrid=True, gridcolor="rgba(255,255,255,0.05)")
-                )
-                st.session_state.fig_dur = fig_dur
-                st.session_state.dur_chart_key = dur_chart_key
-            else:
-                fig_dur = st.session_state.fig_dur
-                
+
+            fig_dur = go.Figure()
+
+            # Area chart: Line + Markers with a soft transparent blue fill underneath
+            fig_dur.add_trace(go.Scatter(
+                x=df_plot["ExecutionDate"],
+                y=df_plot["Duration"],
+                name="Duration",
+                line=dict(color="#3B82F6", width=3),
+                mode="lines+markers",
+                fill="tozeroy",
+                fillcolor="rgba(59, 130, 246, 0.15)",
+                hovertemplate="%{y:.2f} min<extra></extra>"
+            ))
+
+            fig_dur.update_layout(
+                margin=dict(l=40, r=20, t=10, b=40),
+                height=280,
+                hovermode="x unified",
+                showlegend=False,
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
+                separators=get_plotly_separators(lang),
+                xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.05)"),
+                yaxis=dict(title="Duration (Minutes)" if lang == "EN" else "Ausführungsdauer (Minuten)", rangemode="tozero", showgrid=True, gridcolor="rgba(255,255,255,0.05)")
+            )
             st.plotly_chart(fig_dur, use_container_width=True)
 
 
@@ -544,18 +544,27 @@ def render_monitoring(lang=None):
     st.write("")
     render_airflow_monitor(lang)
     st.write("")
-    
-    # ─── Live Container Log Viewer ──────────────────────────────────────────────
+    render_log_viewer(lang)
+
+
+# ─── Live Container Log Viewer Fragment ────────────────────────────────────────
+@st.fragment(run_every="30s")
+def render_log_viewer(lang="EN"):
+    """Renders the live container log viewer with log timeline chart.
+
+    Auto-refreshes every 30 seconds to always show the latest log entries.
+    """
+    render_fragment_scroll_guard("logs")
+    t = TRANSLATIONS[lang]
     st.subheader(t["log_viewer_title"])
     try:
-        import docker
         client = get_docker_client()
         if client:
             all_containers = client.containers.list(all=True)
             container_names = sorted([c.name for c in all_containers])
         else:
             container_names = []
-        
+
         if container_names:
             log_cols = st.columns([2, 1])
             with log_cols[0]:
@@ -578,13 +587,13 @@ def render_monitoring(lang=None):
                     step=10,
                     key="log_viewer_num_lines"
                 )
-                
+
             selected_container = client.containers.get(selected_container_name)
             logs_bytes = selected_container.logs(tail=num_lines, stdout=True, stderr=True)
             logs_text = logs_bytes.decode("utf-8")
-            
+
             logs_df = parse_container_logs(logs_text)
-            
+
             with st.container(border=True):
                 st.caption(f"Logs for **{selected_container_name}** (tail: {num_lines})")
                 if not logs_df.empty:
@@ -597,7 +606,7 @@ def render_monitoring(lang=None):
                         elif val in ["WARNING", "WARN"]:
                             return "color: #FB923C; font-weight: bold;"
                         return ""
-                    
+
                     logs_df_display = logs_df.copy()
                     if lang == "DE" and "Timestamp" in logs_df_display.columns:
                         logs_df_display["Timestamp"] = logs_df_display["Timestamp"].apply(
@@ -621,13 +630,13 @@ def render_monitoring(lang=None):
                     st.write("")
                     st.markdown(f"**{t['log_chart_title']}**")
                     import plotly.express as px
-                    
+
                     # Caching the log timeline Plotly figure in session state to prevent reload flashes
                     log_chart_key = hash((int(pd.util.hash_pandas_object(logs_df).sum()), selected_container_name, num_lines, lang))
                     if "log_chart_key" not in st.session_state or st.session_state.log_chart_key != log_chart_key or "fig_log" not in st.session_state:
                         df_chart = logs_df.copy()
                         df_chart["Timestamp"] = pd.to_datetime(df_chart["Timestamp"])
-                        
+
                         color_discrete_map = {
                             "INFO": "#34D399",
                             "WARNING": "#FB923C",
@@ -637,7 +646,7 @@ def render_monitoring(lang=None):
                             "CRITICAL": "#F87171",
                             "DEBUG": "#60A5FA"
                         }
-                        
+
                         fig_log = px.histogram(
                             df_chart,
                             x="Timestamp",
@@ -645,7 +654,7 @@ def render_monitoring(lang=None):
                             color_discrete_map=color_discrete_map,
                             category_orders={"Level": ["INFO", "WARNING", "WARN", "DEBUG", "ERROR", "FATAL", "CRITICAL"]}
                         )
-                        
+
                         fig_log.update_layout(
                             margin=dict(l=40, r=20, t=10, b=40),
                             height=220,
@@ -661,7 +670,7 @@ def render_monitoring(lang=None):
                         st.session_state.log_chart_key = log_chart_key
                     else:
                         fig_log = st.session_state.fig_log
-                        
+
                     st.plotly_chart(fig_log, use_container_width=True)
                 else:
                     st.info("No logs found for this container.")
@@ -675,3 +684,4 @@ def render_monitoring(lang=None):
 if __name__ == "__main__":
     st.title("System & Airflow Monitoring")
     render_monitoring()
+

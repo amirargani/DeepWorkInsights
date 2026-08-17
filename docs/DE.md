@@ -468,6 +468,23 @@ PolynomialRegression (deg 2)   82.93  87250  67209
 
 ## Changelog
 
+### v1.4
+#### 🔄 Intelligentes Auto-Refresh: Datengesteuerte Aktualisierungen für Dashboard & Monitoring
+- **Dashboard — Änderungserkennungs-Watcher** (`streamlit/app_pages/dashboard.py`):
+  - `_dashboard_change_watcher`: unsichtbares `@st.fragment(run_every="60s")`, das alle 60s neue Vorhersage- oder Testlauf-Zeitstempel in PostgreSQL prüft. Löst `st.rerun()` nur bei erkannter Änderung aus — die Dashboard-Seite bleibt ansonsten vollständig statisch.
+- **Docker Monitor** (`streamlit/app_pages/monitoring.py`):
+  - `render_docker_monitor` läuft als `@st.fragment(run_every="30s")`. Nur der Docker-Abschnitt wird alle 30s neu gerendert; der Rest der Monitoring-Seite bleibt unberührt.
+- **Airflow Monitor** (`streamlit/app_pages/monitoring.py`):
+  - `render_airflow_monitor` läuft als `@st.fragment(run_every="30s")`. Nur der Airflow-Abschnitt wird alle 30s neu gerendert. Buttons (Ausführen, Stoppen, Pausieren) und Toast-Benachrichtigungen funktionieren korrekt innerhalb des Fragment-Scopes.
+- **Log-Viewer** (`streamlit/app_pages/monitoring.py`):
+  - `render_log_viewer` läuft als `@st.fragment(run_every="30s")`, da Container-Logs fortlaufend erzeugt werden und immer neu sind.
+- **Scroll-Positions-Guard** (`streamlit/ui/scroll_persister.py`):
+  - Neue Funktion `render_fragment_scroll_guard(key)`, die am Anfang jedes `run_every`-Fragments injiziert wird. Speichert die aktuelle Scroll-Position in `sessionStorage` und stellt sie über einen `MutationObserver` wieder her, nachdem Streamlit den Fragment-DOM gepatcht hat — verhindert, dass die Seite bei jedem Auto-Refresh-Tick nach oben springt.
+- **Speicher-Fix** (`streamlit/app_pages/monitoring.py`):
+  - Plotly-Figuren-Caching aus `session_state` entfernt (`fig_perf`, `fig_dur`, `fig_log`), das mit jedem Fragment-Rerun wuchs und Browser-Speicherdruck-Neuladen verursachte.
+- **Stabiler Daten-Cache** (`packages/dashboard_data.py`):
+  - Cache-TTL von `load_dashboard_data` von `5s` auf `55s` erhöht, um redundante Datenbankabfragen zwischen Poll-Zyklen zu vermeiden.
+
 ### v1.3
 #### 🇩🇪 Deutsche Lokalisierung & sprachbewusste Formatierer
 - **Eigenes Formatierer-Modul** (`streamlit/ui/formatters.py`):

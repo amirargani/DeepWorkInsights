@@ -159,7 +159,7 @@ DASHBOARD_TRANSLATIONS = {
 TRANSLATIONS = DASHBOARD_TRANSLATIONS
 
 
-@st.cache_data(ttl="5s")
+@st.cache_data(ttl="55s")
 def load_dashboard_data():
     """Fetch raw history, predictions, active test runs, and archives from PostgreSQL DB."""
     init_db()

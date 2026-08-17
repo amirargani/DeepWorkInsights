@@ -15,6 +15,7 @@ from ui import (
     format_number,
     render_database_browser,
     render_forecast_error_chart,
+    render_fragment_scroll_guard,
     render_historical_timeline_area_chart,
     render_historical_timeline_chart,
     render_kpi_cards,
@@ -24,8 +25,31 @@ from ui import (
 )
 
 
+@st.fragment(run_every="60s")
+def _dashboard_change_watcher():
+    """Invisible background fragment: polls for data changes every 60s.
+
+    Renders nothing visible. Only triggers a full page rerun when the latest
+    prediction or test run timestamp has changed since the last check.
+    Also guards the scroll position so the 60s poll never jumps the page to top.
+    """
+    render_fragment_scroll_guard("dashboard")
+    df_raw, _, df_pred_all, df_runs, _ = load_dashboard_data()
+    pred_ts = str(df_pred_all.iloc[0]["run_timestamp"]) if not df_pred_all.empty else ""
+    runs_ts = str(df_runs.iloc[0]["run_timestamp"]) if not df_runs.empty else ""
+    new_signal = f"{pred_ts}|{runs_ts}"
+    if new_signal != st.session_state.get("_dash_data_signal", ""):
+        st.session_state._dash_data_signal = new_signal
+        st.rerun()
+
+
 def render_dashboard(lang=None):
-    """Renders the main forecasting dashboard including KPI cards, charts, and database browser."""
+    """Renders the main forecasting dashboard including KPI cards, charts, and database browser.
+
+    Elements update automatically when new data is detected in the database.
+    No periodic visual page refresh — only re-renders on actual data changes.
+    """
+    _dashboard_change_watcher()  # Invisible background data watcher
 
     if lang is None:
         lang = st.session_state.get("language", "EN")

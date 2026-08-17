@@ -488,6 +488,23 @@ PolynomialRegression (deg 2)   82.93  87250  67209
 
 ## Changelog
 
+### v1.4
+#### 🔄 Smart Auto-Refresh: Data-Driven Updates for Dashboard & Monitoring
+- **Dashboard — Change-Detection Watcher** (`streamlit/app_pages/dashboard.py`):
+  - `_dashboard_change_watcher`: invisible `@st.fragment(run_every="60s")` that polls for new prediction or test run timestamps in PostgreSQL. Only triggers `st.rerun()` when a change is detected — the dashboard page stays completely static otherwise.
+- **Docker Monitor** (`streamlit/app_pages/monitoring.py`):
+  - `render_docker_monitor` runs as `@st.fragment(run_every="30s")`. Only the Docker section re-renders every 30s; the rest of the monitoring page is untouched.
+- **Airflow Monitor** (`streamlit/app_pages/monitoring.py`):
+  - `render_airflow_monitor` runs as `@st.fragment(run_every="30s")`. Only the Airflow section re-renders every 30s. Buttons (trigger, stop, pause) and toast notifications work correctly within the scoped fragment.
+- **Log Viewer** (`streamlit/app_pages/monitoring.py`):
+  - `render_log_viewer` runs as `@st.fragment(run_every="30s")` since container logs are continuously produced and always new.
+- **Scroll Position Guard** (`streamlit/ui/scroll_persister.py`):
+  - New `render_fragment_scroll_guard(key)` function injected at the top of every `run_every` fragment. Saves the current scroll position to `sessionStorage` before each rerun and restores it via a `MutationObserver` after Streamlit finishes patching the fragment DOM — prevents the page from jumping to the top on every auto-refresh tick.
+- **Memory Fix** (`streamlit/app_pages/monitoring.py`):
+  - Removed Plotly figure caching from `session_state` (`fig_perf`, `fig_dur`, `fig_log`) which was growing with every fragment rerun and causing browser memory pressure reloads.
+- **Stable Data Cache** (`packages/dashboard_data.py`):
+  - Increased `load_dashboard_data` cache TTL from `5s` to `55s` to prevent redundant database queries between polling cycles.
+
 ### v1.3
 #### 🇩🇪 German Localization & Language-Aware Formatters
 - **Dedicated Formatter Module** (`streamlit/ui/formatters.py`):
